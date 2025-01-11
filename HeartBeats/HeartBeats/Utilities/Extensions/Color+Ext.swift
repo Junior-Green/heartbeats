@@ -14,3 +14,11 @@ extension Color {
 extension NSColor {
   static let brandPrimary = NSColor(named: "Primary")
 }
+
+extension Color {
+  static let brandSecondary = Color("Secondary")
+}
+
+extension NSColor {
+  static let brandSecondary = NSColor(named: "Secondary")
+}
