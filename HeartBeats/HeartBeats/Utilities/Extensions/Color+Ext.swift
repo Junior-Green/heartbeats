@@ -8,17 +8,17 @@
 import SwiftUI
 
 extension Color {
-  static let brandPrimary = Color("Primary")
+  static let HBPrimary = Color("brandPrimary")
 }
 
 extension NSColor {
-  static let brandPrimary = NSColor(named: "Primary")
+  static let HBPrimary = NSColor(named: "brandPrimary")
 }
 
 extension Color {
-  static let brandSecondary = Color("Secondary")
+  static let HBSecondary = Color("brandSecondary")
 }
 
 extension NSColor {
-  static let brandSecondary = NSColor(named: "Secondary")
+  static let HBSecondary = NSColor(named: "brandSecondary")
 }
