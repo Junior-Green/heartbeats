@@ -31,23 +31,44 @@ const (
 	DELETE action = "DELETE"
 )
 
+// UDSRequest represents a request in the UDS (Unix Domain Socket) communication.
+// It contains the action to be performed, the resource being targeted, and any
+// additional payload data required for the action.
+//
+// Fields:
+// - Action: The action to be performed, represented by the `action` type.
+// - Resource: The resource being targeted by the action.
+// - Payload: Additional data required for the action, represented as a byte slice.
 type UDSRequest struct {
 	Action   action `json:"action"`
 	Resource string `json:"resource"`
 	Payload  []byte `json:"payload"`
 }
 
+// UDSResponse represents the response structure for UDS (Unix Domain Socket) communication.
+// It contains the status of the response and the payload data.
+//
+// Fields:
+// - Status: The status of the response, represented by the `status` type.
+// - Payload: The payload data of the response, represented as a byte slice and serialized as "data" in JSON.
 type UDSResponse struct {
 	Status  status `json:"status"`
 	Payload []byte `json:"data"`
 }
 
+// socketConn represents a Unix Domain Socket (UDS) connection.
+// It contains the socket path, a handler function to process UDS requests,
+// and a listener to accept incoming connections.
 type socketConn struct {
 	socketPath string
 	handler    func(UDSRequest) UDSResponse
 	listener   net.Listener
 }
 
+// Listen starts the socket connection listener. It continuously accepts new
+// connections and handles each connection in a separate goroutine. If an error
+// occurs while accepting a connection, it logs the error and continues to
+// accept new connections. The listener is closed when the function returns.
 func (s *socketConn) Listen() {
 	defer s.listener.Close()
 
@@ -62,6 +83,16 @@ func (s *socketConn) Listen() {
 	}
 }
 
+// handleRequest handles incoming requests on the socket connection.
+// It reads the request, unmarshals it into a UDSRequest struct, processes it using the handler,
+// and then marshals and writes the response back to the connection.
+// If any error occurs during reading, unmarshalling, marshalling, or writing, it logs the error.
+//
+// Parameters:
+//   c (net.Conn): The network connection to read from and write to.
+//
+// Note:
+//   The connection is closed at the end of the function.
 func (s *socketConn) handleRequest(c net.Conn) {
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(timeout))
@@ -89,6 +120,17 @@ func (s *socketConn) handleRequest(c net.Conn) {
 	}
 }
 
+// NewSocketConn creates a new Unix Domain Socket (UDS) connection with the specified socket path and handler.
+// It attempts to remove any existing socket file at the specified path before starting a new listener.
+// The function retries starting the listener a predefined number of times before panicking if unsuccessful.
+//
+// Parameters:
+//   - socketPath: The file system path where the UDS socket will be created.
+//   - handler: An implementation of the UDSHandler interface to handle incoming connections.
+//
+// Returns:
+//   - *socketConn: A pointer to the created socketConn instance.
+//   - error: An error if the socket connection could not be created.
 func NewSocketConn(socketPath string, handler UDSHandler) (*socketConn, error) {
 	socket := &socketConn{
 		socketPath: socketPath,
