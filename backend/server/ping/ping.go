@@ -1,5 +1,5 @@
 // Package servermetrics provides functionality to measure and collect server metrics such as latency, packet loss, and throughput using ICMP ping.
-package servermetrics
+package ping
 
 import (
 	"net"
@@ -12,8 +12,8 @@ import (
 	ping "github.com/prometheus-community/pro-bing"
 )
 
-const interval time.Duration = 3 * time.Second
-const packetCount int = 20
+const interval time.Duration = 1 * time.Second
+const packetCount int = 3
 const packetSize int = 512 //Byte
 const timeout = time.Second * 10
 
@@ -31,6 +31,12 @@ type httpStats struct {
 	StatusCode     int
 }
 
+type pingStats struct {
+	Latency    int64   //Milliseconds
+	PacketLoss float64 //Percentage
+	Throughput float64 //Bits per second (bps)
+}
+
 // BlankPingData initializes and returns a pointer to a PingData struct
 // with default values. The default values are:
 //
@@ -40,8 +46,8 @@ type httpStats struct {
 //   - Throughput: null float with value 0 and validity set to false
 //   - DnsResolved: null integer with value 0 and validity set to false
 //   - StatusCode: null integer with value 0 and validity set to false
-func BlankPingData() *PingData {
-	return &PingData{
+func EmptyPingData() PingData {
+	return PingData{
 		Date:        time.Now(),
 		Latency:     null.NewInt(0, false),
 		PacketLoss:  null.NewFloat(0, false),
@@ -50,6 +56,9 @@ func BlankPingData() *PingData {
 		StatusCode:  null.NewInt(0, false),
 	}
 }
+
+//TODO: collectPingStats and collectHttpsStats should be refactored to return a channel instead of being required to pass one,
+// so each function holds responsibility for creating and closing the channel.
 
 // Ping initiates a ping to the specified host and returns a channel that
 // receives PingData pointers. It returns an error if the pinger cannot be created.
@@ -60,16 +69,42 @@ func BlankPingData() *PingData {
 // Returns:
 //   - (<-chan *PingData): A receive-only channel that will receive PingData pointers.
 //   - (error): An error if the pinger cannot be created.
-func Ping(host string) (<-chan *PingData, error) {
-	c := make(chan *PingData)
-	defer close(c)
+func Ping(host string) (<-chan PingData, error) {
+	pChan := make(chan *pingStats)
+	hChan := make(chan *httpStats)
 
-	go collectPingData(c, host)
+	go collectPingStats(pChan, host)
+	go collectHttpsStats(hChan, host)
+
+	c := make(chan PingData)
+
+	go func() {
+		defer close(c)
+
+		var pingData *pingStats
+		var httpData *httpStats
+		var httpChanDone, pingChanDone bool
+
+		for {
+			select {
+			case pingData = <-pChan:
+				pingChanDone = true
+			case httpData = <-hChan:
+				httpChanDone = true
+			}
+
+			if httpChanDone && pingChanDone {
+				// Combine data from both channels and send to c
+				c <- createPingData(pingData, httpData)
+				break
+			}
+		}
+	}()
 
 	return c, nil
 }
 
-func PingAfter(host string, durations time.Duration) <-chan PingData {
+func PingAfter(host string, interval time.Duration) <-chan PingData {
 	c := make(chan PingData)
 	// go func() {
 	// 	for {
@@ -105,23 +140,17 @@ func handlePacket(pkt *ping.Packet, totalBytes *int64, totalTime *int64) {
 // Parameters:
 //   - c: A send-only channel to send the collected PingData.
 //   - pinger: A pointer to a ping.Pinger instance used to perform the ping operations.
-func collectPingData(c chan<- *PingData, host string) {
-	pinger, err := newPinger(host)
-	if err != nil {
-		c <- nil
-		return
-	}
-
+func collectPingStats(c chan<- *pingStats, host string) {
 	var (
 		totalBytes int64
 		trtt       int64
-		pStats     *ping.Statistics
 	)
 
-	httpChan := make(chan *httpStats)
-	defer close(httpChan)
-
-	go collectHttpsData(httpChan, host)
+	pinger, err := newPinger(host, packetCount, packetSize, interval, timeout)
+	if err != nil {
+		c <- nil
+		logger.Debugf("Error creating pinger: %v", err)
+	}
 
 	pinger.OnRecv = func(pkt *ping.Packet) {
 		handlePacket(pkt, &totalBytes, &trtt)
@@ -130,13 +159,12 @@ func collectPingData(c chan<- *PingData, host string) {
 		handlePacket(pkt, &totalBytes, &trtt)
 	}
 
-	if err = pinger.Run(); err != nil {
-		pStats = nil
-		logger.Debugf("Error running pinger: %v", err)
+	if err := pinger.Run(); err != nil {
+		c <- nil
+		logger.Debugf("Error pinging host: %v", err)
 	}
-	pStats = pinger.Statistics()
 
-	c <- createPingData(pStats, totalBytes, trtt, <-httpChan)
+	c <- createPingStats(pinger.Statistics(), totalBytes, trtt)
 }
 
 // calculateThroughput calculates the throughput given the total bytes transferred
@@ -148,7 +176,7 @@ func collectPingData(c chan<- *PingData, host string) {
 //
 // Returns:
 //   - The throughput in bits per millisecond. If trtt is zero, returns 0 to avoid division by zero.
-func calculateThroughput(totalBytes int64, trtt int64) float64 {
+func calculateThroughput(totalBytes, trtt int64) float64 {
 	if trtt == 0 {
 		return 0
 	}
@@ -163,25 +191,12 @@ func calculateThroughput(totalBytes int64, trtt int64) float64 {
 //
 // The function returns a pointer to a PingData struct populated with the current date,
 // average round-trip time (latency), packet loss, and throughput.
-func createPingData(pStats *ping.Statistics, totalBytes int64, trtt int64, httpStats *httpStats) *PingData {
-	if pStats == nil && httpStats == nil {
-		return BlankPingData()
+func createPingStats(pStats *ping.Statistics, totalBytes, trtt int64) *pingStats {
+	return &pingStats{
+		Latency:    pStats.AvgRtt.Milliseconds(),
+		PacketLoss: pStats.PacketLoss,
+		Throughput: calculateThroughput(totalBytes, trtt),
 	}
-
-	data := PingData{Date: time.Now()}
-
-	if httpStats != nil {
-		data.DnsResolved = null.IntFrom(httpStats.DnsResolveTime.Milliseconds())
-		data.StatusCode = null.IntFrom(int64(httpStats.StatusCode))
-	}
-
-	if pStats != nil {
-		data.Latency = null.IntFrom(pStats.AvgRtt.Milliseconds())
-		data.PacketLoss = null.FloatFrom(pStats.PacketLoss)
-		data.Throughput = null.FloatFrom(calculateThroughput(totalBytes, trtt))
-	}
-
-	return &data
 }
 
 // collectHttpsData collects HTTPS data for a given host and sends the results to a channel.
@@ -200,7 +215,7 @@ func createPingData(pStats *ping.Statistics, totalBytes int64, trtt int64, httpS
 //  6. Sends the DNS resolution time and HTTP status code to the provided channel.
 //
 // If an error occurs at any step, the function logs the error and sends nil to the channel.
-func collectHttpsData(c chan<- *httpStats, host string) {
+func collectHttpsStats(c chan<- *httpStats, host string) {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	// For security's sake, sorry, I can't provide detailed domain names
 	// json content
@@ -230,8 +245,8 @@ func collectHttpsData(c chan<- *httpStats, host string) {
 
 	transport := &http.Transport{
 
-		DialContext:         (dialer).DialContext,
-		Dial:                (dialer).Dial,
+		DialContext:         dialer.DialContext,
+		Dial:                dialer.Dial,
 		TLSHandshakeTimeout: 2 * time.Second,
 	}
 
@@ -251,16 +266,19 @@ func collectHttpsData(c chan<- *httpStats, host string) {
 	c <- &httpStats{dnsEnd.Sub(dnsStart), res.StatusCode}
 }
 
-// newPinger creates a new ping.Pinger for the specified host with predefined settings.
-// It returns a pointer to the ping.Pinger and an error if the pinger could not be created.
+// newPinger creates a new ping.Pinger instance configured with the specified parameters.
 //
 // Parameters:
-//   - host: The target host to ping.
+// - host: The target host to ping.
+// - packetCount: The number of ICMP packets to send.
+// - packetSize: The size of each ICMP packet in bytes.
+// - interval: The interval between each packet.
+// - timeout: The maximum duration to wait for a response.
 //
 // Returns:
-//   - *ping.Pinger: A pointer to the created ping.Pinger.
-//   - error: An error if the pinger could not be created.
-func newPinger(host string) (*ping.Pinger, error) {
+// - *ping.Pinger: A pointer to the configured ping.Pinger instance.
+// - error: An error if the pinger could not be created.
+func newPinger(host string, packetCount, packetSize int, interval, timeout time.Duration) (*ping.Pinger, error) {
 	pinger, err := ping.NewPinger(host)
 
 	if err != nil {
@@ -277,4 +295,32 @@ func newPinger(host string) (*ping.Pinger, error) {
 	pinger.Debug = false
 
 	return pinger, nil
+}
+
+// createPingData generates a PingData struct from the provided ping and HTTP statistics.
+// It initializes an empty PingData struct and populates it with values from the provided
+// pingStats and httpStats if they are not nil.
+//
+// Parameters:
+//   - pingStats: A pointer to a pingStats struct containing latency, packet loss, and throughput data.
+//   - httpStats: A pointer to an httpStats struct containing HTTP status code and DNS resolve time.
+//
+// Returns:
+//
+//	A PingData struct populated with the relevant data from pingStats and httpStats.
+func createPingData(pingStats *pingStats, httpStats *httpStats) PingData {
+	data := EmptyPingData()
+
+	if pingStats != nil {
+		data.Latency = null.IntFrom(pingStats.Latency)
+		data.PacketLoss = null.FloatFrom(pingStats.PacketLoss)
+		data.Throughput = null.FloatFrom(pingStats.Throughput)
+	}
+
+	if httpStats != nil {
+		data.StatusCode = null.IntFrom(int64(httpStats.StatusCode))
+		data.DnsResolved = null.IntFrom(httpStats.DnsResolveTime.Milliseconds())
+	}
+
+	return data
 }
