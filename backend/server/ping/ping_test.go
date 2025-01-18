@@ -166,8 +166,8 @@ func TestEmptyPingData(t *testing.T) {
 	assert.False(t, data.Throughput.Valid)
 	assert.Equal(t, 0.0, data.Throughput.Float64)
 
-	assert.False(t, data.DnsResolved.Valid)
-	assert.Equal(t, int64(0), data.DnsResolved.Int64)
+	assert.False(t, data.DnsResolveTime.Valid)
+	assert.Equal(t, int64(0), data.DnsResolveTime.Int64)
 
 	assert.False(t, data.StatusCode.Valid)
 	assert.Equal(t, int64(0), data.StatusCode.Int64)
@@ -186,11 +186,11 @@ func TestCreatePingData(t *testing.T) {
 			pingStats: nil,
 			httpStats: nil,
 			want: PingData{
-				Latency:     null.NewInt(0, false),
-				PacketLoss:  null.NewFloat(0, false),
-				Throughput:  null.NewFloat(0, false),
-				DnsResolved: null.NewInt(0, false),
-				StatusCode:  null.NewInt(0, false),
+				Latency:        null.NewInt(0, false),
+				PacketLoss:     null.NewFloat(0, false),
+				Throughput:     null.NewFloat(0, false),
+				DnsResolveTime: null.NewInt(0, false),
+				StatusCode:     null.NewInt(0, false),
 			},
 		},
 		{
@@ -199,48 +199,49 @@ func TestCreatePingData(t *testing.T) {
 				Latency:    100,
 				PacketLoss: 0.5,
 				Throughput: 1000,
+				DnsResolveTime: 5,
 			},
 			httpStats: nil,
 			want: PingData{
-				Latency:     null.IntFrom(100),
-				PacketLoss:  null.FloatFrom(0.5),
-				Throughput:  null.FloatFrom(1000),
-				DnsResolved: null.NewInt(0, false),
-				StatusCode:  null.NewInt(0, false),
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.5),
+				Throughput:     null.FloatFrom(1000),
+				DnsResolveTime: null.IntFrom(5),
+				StatusCode:     null.NewInt(0, false),
 			},
 		},
 		{
 			name:      "Only httpStats provided",
 			pingStats: nil,
 			httpStats: &httpStats{
-				DnsResolveTime: 50 * time.Millisecond,
-				StatusCode:     http.StatusOK,
+				StatusCode: http.StatusOK,
 			},
 			want: PingData{
-				Latency:     null.NewInt(0, false),
-				PacketLoss:  null.NewFloat(0, false),
-				Throughput:  null.NewFloat(0, false),
-				DnsResolved: null.IntFrom(50),
-				StatusCode:  null.IntFrom(http.StatusOK),
+				Latency:        null.NewInt(0, false),
+				PacketLoss:     null.NewFloat(0, false),
+				Throughput:     null.NewFloat(0, false),
+				DnsResolveTime: null.NewInt(0, false),
+				StatusCode:     null.IntFrom(http.StatusOK),
 			},
 		},
 		{
 			name: "Both stats provided",
 			pingStats: &pingStats{
-				Latency:    100,
-				PacketLoss: 0.5,
-				Throughput: 1000,
+				Latency:        100,
+				PacketLoss:     0.5,
+				Throughput:     1000,
+				DnsResolveTime: 50,
 			},
 			httpStats: &httpStats{
-				DnsResolveTime: 50 * time.Millisecond,
-				StatusCode:     http.StatusOK,
+
+				StatusCode: http.StatusOK,
 			},
 			want: PingData{
-				Latency:     null.IntFrom(100),
-				PacketLoss:  null.FloatFrom(0.5),
-				Throughput:  null.FloatFrom(1000),
-				DnsResolved: null.IntFrom(50),
-				StatusCode:  null.IntFrom(http.StatusOK),
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.5),
+				Throughput:     null.FloatFrom(1000),
+				DnsResolveTime: null.IntFrom(50),
+				StatusCode:     null.IntFrom(http.StatusOK),
 			},
 		},
 	}
@@ -251,11 +252,102 @@ func TestCreatePingData(t *testing.T) {
 			assert.Equal(t, tt.want.Latency, got.Latency)
 			assert.Equal(t, tt.want.PacketLoss, got.PacketLoss)
 			assert.Equal(t, tt.want.Throughput, got.Throughput)
-			assert.Equal(t, tt.want.DnsResolved, got.DnsResolved)
+			assert.Equal(t, tt.want.DnsResolveTime, got.DnsResolveTime)
 			assert.Equal(t, tt.want.StatusCode, got.StatusCode)
 		})
 	}
 }
+
+func TestPing(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		reachable bool
+		wantErr   bool
+	}{
+		{
+			name:      "Valid host",
+			host:      "google.com",
+			reachable: true,
+			wantErr:   false,
+		},
+		{
+			name:      "Invalid host",
+			host:      "invalid.host",
+			reachable: false,
+			wantErr:   true,
+		},
+		{
+			name:      "Empty host",
+			host:      "",
+			reachable: false,
+			wantErr:   true,
+		},
+		{
+			name:      "Localhost",
+			host:      "localhost",
+			reachable: false,
+			wantErr:   true,
+		},
+		{
+			name:      "IP address",
+			host:      "8.8.8.8",
+			reachable: true,
+			wantErr:   true,
+		},
+		{
+			name:      "Non-existent domain",
+			host:      "nonexistent.domain",
+			reachable: false,
+			wantErr:   true,
+		},
+		{
+			name:      "Timeout host",
+			host:      "10.255.255.1", // Assuming this IP will timeout
+			reachable: false,
+			wantErr:   false,
+		},
+		{
+			name:      "HTTPS host",
+			host:      "https://example.com",
+			reachable: true,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Ping(tt.host)
+			select {
+			case result := <-c:
+				printPingData(t, result)
+
+				assert.WithinDuration(t, time.Now(), result.Date, time.Second*3)
+				if tt.wantErr {
+					assert.False(t, result.DnsResolveTime.Valid && result.Latency.Valid && result.PacketLoss.Valid && result.Throughput.Valid && result.StatusCode.Valid)
+				} else if !tt.reachable {
+					assert.Zero(t, result.DnsResolveTime.Int64)
+					assert.Zero(t, result.Latency.Int64)
+					assert.Zero(t, result.PacketLoss.Float64)
+					assert.Zero(t, result.Throughput.Float64)
+					assert.Zero(t, result.StatusCode.Int64)
+				} else {
+					assert.GreaterOrEqual(t, result.Latency.Int64, int64(0))
+					assert.Less(t, result.PacketLoss.Float64, 100.0)
+					assert.Greater(t, result.Throughput.Float64, 0.0)
+					assert.Greater(t, result.DnsResolveTime.Int64, int64(0))
+					assert.Equal(t, int64(200), result.StatusCode.Int64)
+				}
+
+			case <-time.After(10 * time.Second):
+				if tt.reachable {
+					t.Fatal("Test timed out")
+				}
+			}
+		})
+	}
+}
+
 func TestCollectHttpsStats(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -267,6 +359,13 @@ func TestCollectHttpsStats(t *testing.T) {
 		{
 			name:       "Valid host",
 			host:       "http://example.com",
+			statusCode: http.StatusOK,
+			wantErr:    false,
+			timeout:    false,
+		},
+		{
+			name:       "No protocol scheme",
+			host:       "example.com",
 			statusCode: http.StatusOK,
 			wantErr:    false,
 			timeout:    false,
@@ -313,9 +412,7 @@ func TestCollectHttpsStats(t *testing.T) {
 				} else {
 					assert.NotNil(t, result)
 					assert.Equal(t, tt.statusCode, result.StatusCode)
-					assert.Greater(t, result.DnsResolveTime, time.Duration(0))
 					t.Logf("StatusCode: %d", result.StatusCode)
-					t.Logf("DnsResolveTime: %dms", result.DnsResolveTime.Milliseconds())
 				}
 			case <-time.After(5 * time.Second):
 				if !tt.timeout {
@@ -325,83 +422,99 @@ func TestCollectHttpsStats(t *testing.T) {
 		})
 	}
 }
-func TestCreatePingStats(t *testing.T) {
+
+func TestCollectPingStats(t *testing.T) {
 	tests := []struct {
 		name       string
-		pStats     *ping.Statistics
-		totalBytes int64
-		trtt       int64
-		want       *pingStats
+		host       string
+		wantErr    bool
+		reachable  bool
+		packetLoss float64
 	}{
 		{
-			name: "Valid statistics",
-			pStats: &ping.Statistics{
-				AvgRtt:     100 * time.Millisecond,
-				PacketLoss: 0.5,
-			},
-			totalBytes: 1024,
-			trtt:       100,
-			want: &pingStats{
-				Latency:    100,
-				PacketLoss: 0.5,
-				Throughput: 81.92,
-			},
+			name:       "Valid host",
+			host:       "google.com",
+			wantErr:    false,
+			reachable:  true,
+			packetLoss: 0.0,
 		},
 		{
-			name: "Zero TRTT",
-			pStats: &ping.Statistics{
-				AvgRtt:     50 * time.Millisecond,
-				PacketLoss: 0.0,
-			},
-			totalBytes: 1024,
-			trtt:       0,
-			want: &pingStats{
-				Latency:    50,
-				PacketLoss: 0.0,
-				Throughput: 0,
-			},
+			name:       "Invalid host",
+			host:       "invalid.host",
+			wantErr:    true,
+			reachable:  false,
+			packetLoss: 100.0,
 		},
 		{
-			name: "Zero totalBytes",
-			pStats: &ping.Statistics{
-				AvgRtt:     200 * time.Millisecond,
-				PacketLoss: 1.0,
-			},
-			totalBytes: 0,
-			trtt:       100,
-			want: &pingStats{
-				Latency:    200,
-				PacketLoss: 1.0,
-				Throughput: 0,
-			},
+			name:       "Localhost",
+			host:       "localhost",
+			wantErr:    false,
+			reachable:  false,
+			packetLoss: 0.0,
 		},
 		{
-			name: "Zero totalBytes and TRTT",
-			pStats: &ping.Statistics{
-				AvgRtt:     300 * time.Millisecond,
-				PacketLoss: 0.2,
-			},
-			totalBytes: 0,
-			trtt:       0,
-			want: &pingStats{
-				Latency:    300,
-				PacketLoss: 0.2,
-				Throughput: 0,
-			},
+			name:       "IP address",
+			host:       "8.8.8.8",
+			wantErr:    false,
+			reachable:  true,
+			packetLoss: 0.0,
+		},
+		{
+			name:       "Valid HTTPS host",
+			host:       "https://example.com",
+			wantErr:    false,
+			reachable: true,
+			packetLoss: 0.0,
+		},
+		{
+			name:       "Non-existent domain",
+			host:       "nonexistent.domain",
+			wantErr:    true,
+			reachable:  false,
+			packetLoss: 100.0,
+		},
+		{
+			name:       "Timeout host",
+			host:       "10.255.255.1", // Assuming this IP will timeout
+			wantErr:    true,
+			reachable:  false,
+			packetLoss: 100.0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := createPingStats(tt.pStats, tt.totalBytes, tt.trtt)
-			assert.Equal(t, tt.want.Latency, got.Latency)
-			assert.Equal(t, tt.want.PacketLoss, got.PacketLoss)
-			assert.Equal(t, tt.want.Throughput, got.Throughput)
+			c := make(chan *pingStats)
+			go collectPingStats(c, tt.host)
+
+			select {
+			case result := <-c:
+				printPingStats(t, result)
+				if tt.wantErr {
+					assert.Nil(t, result)
+				} else if !tt.reachable {
+					assert.NotNil(t, result)
+					assert.Zero(t, result.Latency)
+					assert.Zero(t, result.PacketLoss)
+					assert.Zero(t, result.Throughput)
+					assert.GreaterOrEqual(t, result.DnsResolveTime, int64(0))
+				} else {
+					assert.NotNil(t, result)
+					assert.GreaterOrEqual(t, result.Latency, int64(0))
+					assert.Less(t, result.PacketLoss, 100.0)
+					assert.Greater(t, result.Throughput, 0.0)
+					assert.GreaterOrEqual(t, result.DnsResolveTime, int64(0))
+				}
+			case <-time.After(10 * time.Second):
+				if !tt.wantErr {
+					t.Fatal("Test timed out")
+				}
+			}
 		})
 	}
 }
 
-func TestPing(t *testing.T) {
+func TestDnsResolveTime(t *testing.T) {
 	tests := []struct {
 		name    string
 		host    string
@@ -437,41 +550,39 @@ func TestPing(t *testing.T) {
 			host:    "nonexistent.domain",
 			wantErr: true,
 		},
-		{
-			name:    "Timeout host",
-			host:    "10.255.255.1", // Assuming this IP will timeout
-			wantErr: true,
-		},
-		{
-			name:    "HTTPS host",
-			host:    "https://example.com",
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, err := Ping(tt.host)
+			duration, err := DnsResolveTime(tt.host)
+			t.Logf("Resolved time: %v", duration)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Nil(t, c)
+				assert.Zero(t, duration)
 			} else {
 				assert.NoError(t, err)
-				assert.NotNil(t, c)
-
-				select {
-				case result := <-c:
-					assert.NotNil(t, result)
-					assert.WithinDuration(t, time.Now(), result.Date, time.Second)
-					t.Logf("Latency: %d ms", result.Latency.Int64)
-					t.Logf("PacketLoss: %.2f %%", result.PacketLoss.Float64)
-					t.Logf("Throughput: %.2f bps", result.Throughput.Float64)
-					t.Logf("DnsResolved: %d ms", result.DnsResolved.Int64)
-					t.Logf("StatusCode: %d", result.StatusCode.Int64)
-				case <-time.After(10 * time.Second):
-					t.Fatal("Test timed out")
-				}
+				assert.Greater(t, duration, time.Duration(0))
 			}
 		})
 	}
+}
+
+func printPingData(t *testing.T, p PingData) {
+	t.Logf("Latency: %d ms", p.Latency.Int64)
+	t.Logf("PacketLoss: %.2f %%", p.PacketLoss.Float64)
+	t.Logf("Throughput: %.2f bps", p.Throughput.Float64)
+	t.Logf("DnsResolveTime: %d ms", p.DnsResolveTime.Int64)
+	t.Logf("StatusCode: %d", p.StatusCode.Int64)
+}
+
+func printPingStats(t *testing.T, p *pingStats) {
+	if p == nil {
+		t.Log("<nil>")
+		return
+	}
+
+	t.Logf("Latency: %d ms", p.Latency)
+	t.Logf("PacketLoss: %.2f %%", p.PacketLoss)
+	t.Logf("Throughput: %.2f bps", p.Throughput)
+	t.Logf("DNS Resolve time: %d ms", p.DnsResolveTime)
 }

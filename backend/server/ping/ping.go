@@ -4,7 +4,7 @@ package ping
 import (
 	"net"
 	"net/http"
-	"net/http/httptrace"
+	"strings"
 	"time"
 
 	"github.com/Junior-Green/heartbeats/logger"
@@ -12,29 +12,29 @@ import (
 	ping "github.com/prometheus-community/pro-bing"
 )
 
-const interval time.Duration = 1 * time.Second
+const interval time.Duration = time.Second
 const packetCount int = 3
 const packetSize int = 512 //Byte
 const timeout = time.Second * 10
 
 type PingData struct {
-	Date        time.Time
-	Latency     null.Int   //Milliseconds
-	PacketLoss  null.Float //Percentage
-	Throughput  null.Float //Bits per second (bps)
-	DnsResolved null.Int   //Milliseconds
-	StatusCode  null.Int   //HTTP
+	Date           time.Time
+	Latency        null.Int   //Milliseconds
+	PacketLoss     null.Float //Percentage
+	Throughput     null.Float //Bits per second (bps)
+	DnsResolveTime null.Int   //Milliseconds
+	StatusCode     null.Int   //HTTP
 }
 
 type httpStats struct {
-	DnsResolveTime time.Duration
-	StatusCode     int
+	StatusCode int
 }
 
 type pingStats struct {
-	Latency    int64   //Milliseconds
-	PacketLoss float64 //Percentage
-	Throughput float64 //Bits per second (bps)
+	Latency        int64   //Milliseconds
+	PacketLoss     float64 //Percentage
+	Throughput     float64 //Bits per second (bps)
+	DnsResolveTime int64   //Milliseconds
 }
 
 // BlankPingData initializes and returns a pointer to a PingData struct
@@ -48,12 +48,12 @@ type pingStats struct {
 //   - StatusCode: null integer with value 0 and validity set to false
 func EmptyPingData() PingData {
 	return PingData{
-		Date:        time.Now(),
-		Latency:     null.NewInt(0, false),
-		PacketLoss:  null.NewFloat(0, false),
-		Throughput:  null.NewFloat(0, false),
-		DnsResolved: null.NewInt(0, false),
-		StatusCode:  null.NewInt(0, false),
+		Date:           time.Now(),
+		Latency:        null.NewInt(0, false),
+		PacketLoss:     null.NewFloat(0, false),
+		Throughput:     null.NewFloat(0, false),
+		DnsResolveTime: null.NewInt(0, false),
+		StatusCode:     null.NewInt(0, false),
 	}
 }
 
@@ -68,40 +68,41 @@ func EmptyPingData() PingData {
 //
 // Returns:
 //   - (<-chan *PingData): A receive-only channel that will receive PingData pointers.
-//   - (error): An error if the pinger cannot be created.
-func Ping(host string) (<-chan PingData, error) {
-	pChan := make(chan *pingStats)
-	hChan := make(chan *httpStats)
+func Ping(host string) <-chan PingData {
+	pingChan := make(chan *pingStats)
+	httpChan := make(chan *httpStats)
 
-	go collectPingStats(pChan, host)
-	go collectHttpsStats(hChan, host)
+	go collectPingStats(pingChan, host)
+	go collectHttpsStats(httpChan, host)
 
 	c := make(chan PingData)
 
 	go func() {
 		defer close(c)
+		defer close(pingChan)
+		defer close(httpChan)
 
-		var pingData *pingStats
-		var httpData *httpStats
+		var pingStats *pingStats
+		var httpStats *httpStats
 		var httpChanDone, pingChanDone bool
 
 		for {
 			select {
-			case pingData = <-pChan:
+			case pingStats = <-pingChan:
 				pingChanDone = true
-			case httpData = <-hChan:
+			case httpStats = <-httpChan:
 				httpChanDone = true
 			}
 
 			if httpChanDone && pingChanDone {
 				// Combine data from both channels and send to c
-				c <- createPingData(pingData, httpData)
-				break
+				c <- createPingData(pingStats, httpStats)
+				return
 			}
 		}
 	}()
 
-	return c, nil
+	return c
 }
 
 func PingAfter(host string, interval time.Duration) <-chan PingData {
@@ -129,27 +130,47 @@ func PingAfter(host string, interval time.Duration) <-chan PingData {
 //   - totalBytes: A pointer to an int64 that accumulates the total number of bytes.
 //   - totalTime: A pointer to an int64 that accumulates the total round-trip time in milliseconds.
 func handlePacket(pkt *ping.Packet, totalBytes *int64, totalTime *int64) {
+	if pkt == nil {
+		logger.Debug("Nil packet received")
+		return
+	}
 	*totalBytes += int64(pkt.Nbytes)
 	*totalTime += pkt.Rtt.Milliseconds()
 }
 
-// collectPingData collects ping data by running the provided pinger and sends the results to the given channel.
-// It handles received and duplicate packets to accumulate total bytes and total round-trip time (trtt).
-// The function blocks until the pinger finishes running, then sends the collected ping data to the channel.
+// collectPingStats collects ping statistics for a given host and sends the results to the provided channel.
+// It resolves the DNS for the host, creates a pinger, and handles received packets to calculate statistics.
 //
 // Parameters:
-//   - c: A send-only channel to send the collected PingData.
-//   - pinger: A pointer to a ping.Pinger instance used to perform the ping operations.
+//   - c: A channel to send the ping statistics.
+//   - host: The host to ping.
+//
+// The function calculates the following statistics:
+//   - Latency: Average round-trip time in milliseconds.
+//   - PacketLoss: Percentage of lost packets.
+//   - Throughput: Calculated throughput based on total bytes and total round-trip time.
+//   - DnsResolved: Time taken to resolve the DNS in milliseconds.
+//
+// If there is an error during DNS resolution, pinger creation, or pinging, the function sends nil to the channel
+// and logs the error using the logger.
 func collectPingStats(c chan<- *pingStats, host string) {
 	var (
 		totalBytes int64
 		trtt       int64
 	)
 
+	resolveTime, err := DnsResolveTime(host)
+	if err != nil {
+		c <- nil
+		logger.Debugf("Error resolving host: %v", err)
+		return
+	}
+
 	pinger, err := newPinger(host, packetCount, packetSize, interval, timeout)
 	if err != nil {
 		c <- nil
 		logger.Debugf("Error creating pinger: %v", err)
+		return
 	}
 
 	pinger.OnRecv = func(pkt *ping.Packet) {
@@ -162,9 +183,17 @@ func collectPingStats(c chan<- *pingStats, host string) {
 	if err := pinger.Run(); err != nil {
 		c <- nil
 		logger.Debugf("Error pinging host: %v", err)
+		return
 	}
 
-	c <- createPingStats(pinger.Statistics(), totalBytes, trtt)
+	stats := pinger.Statistics()
+
+	c <- &pingStats{
+		Latency:        stats.AvgRtt.Milliseconds(),
+		PacketLoss:     stats.PacketLoss,
+		Throughput:     calculateThroughput(totalBytes, trtt),
+		DnsResolveTime: resolveTime.Milliseconds(),
+	}
 }
 
 // calculateThroughput calculates the throughput given the total bytes transferred
@@ -181,22 +210,6 @@ func calculateThroughput(totalBytes, trtt int64) float64 {
 		return 0
 	}
 	return float64(totalBytes*8) / float64(trtt)
-}
-
-// createPingData creates a new PingData instance with the provided statistics.
-// It takes the following parameters:
-// - stats: a pointer to ping.Statistics containing the ping statistics.
-// - totalBytes: the total number of bytes transmitted.
-// - trtt: the total round-trip time in milliseconds.
-//
-// The function returns a pointer to a PingData struct populated with the current date,
-// average round-trip time (latency), packet loss, and throughput.
-func createPingStats(pStats *ping.Statistics, totalBytes, trtt int64) *pingStats {
-	return &pingStats{
-		Latency:    pStats.AvgRtt.Milliseconds(),
-		PacketLoss: pStats.PacketLoss,
-		Throughput: calculateThroughput(totalBytes, trtt),
-	}
 }
 
 // collectHttpsData collects HTTPS data for a given host and sends the results to a channel.
@@ -216,6 +229,10 @@ func createPingStats(pStats *ping.Statistics, totalBytes, trtt int64) *pingStats
 //
 // If an error occurs at any step, the function logs the error and sends nil to the channel.
 func collectHttpsStats(c chan<- *httpStats, host string) {
+	if !strings.HasPrefix(host, "http") {
+		host = "http://" + host
+	}
+
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	// For security's sake, sorry, I can't provide detailed domain names
 	// json content
@@ -227,21 +244,6 @@ func collectHttpsStats(c chan<- *httpStats, host string) {
 	}
 
 	req.Header.Add("cache-control", "no-cache")
-
-	var (
-		dnsStart time.Time
-		dnsEnd   time.Time
-	)
-
-	trace := &httptrace.ClientTrace{
-		DNSStart: func(dnsInfo httptrace.DNSStartInfo) {
-			dnsStart = time.Now()
-		},
-		DNSDone: func(dnsDoneInfo httptrace.DNSDoneInfo) {
-			dnsEnd = time.Now()
-		},
-	}
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	transport := &http.Transport{
 
@@ -263,7 +265,7 @@ func collectHttpsStats(c chan<- *httpStats, host string) {
 	}
 	defer res.Body.Close()
 
-	c <- &httpStats{dnsEnd.Sub(dnsStart), res.StatusCode}
+	c <- &httpStats{res.StatusCode}
 }
 
 // newPinger creates a new ping.Pinger instance configured with the specified parameters.
@@ -315,12 +317,22 @@ func createPingData(pingStats *pingStats, httpStats *httpStats) PingData {
 		data.Latency = null.IntFrom(pingStats.Latency)
 		data.PacketLoss = null.FloatFrom(pingStats.PacketLoss)
 		data.Throughput = null.FloatFrom(pingStats.Throughput)
+		data.DnsResolveTime = null.IntFrom(pingStats.DnsResolveTime)
 	}
 
 	if httpStats != nil {
 		data.StatusCode = null.IntFrom(int64(httpStats.StatusCode))
-		data.DnsResolved = null.IntFrom(httpStats.DnsResolveTime.Milliseconds())
 	}
 
 	return data
+}
+
+func DnsResolveTime(host string) (time.Duration, error) {
+	start := time.Now()
+	_, err := net.LookupIP(host)
+	if err != nil {
+		logger.Debugf("Error resolving host: %v", host)
+		return time.Duration(0), err
+	}
+	return time.Since(start), nil
 }
