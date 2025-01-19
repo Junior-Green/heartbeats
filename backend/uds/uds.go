@@ -18,10 +18,10 @@ type status int
 type UDSHandler func(UDSRequest) UDSResponse
 
 const (
-	SUCCESS status = iota
-	BADREQUEST
-	NOTFOUND
-	ERROR
+	Success status = iota
+	BadRequest
+	NotFound
+	Error
 )
 
 const (

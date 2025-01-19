@@ -196,9 +196,9 @@ func TestCreatePingData(t *testing.T) {
 		{
 			name: "Only pingStats provided",
 			pingStats: &pingStats{
-				Latency:    100,
-				PacketLoss: 0.5,
-				Throughput: 1000,
+				Latency:        100,
+				PacketLoss:     0.5,
+				Throughput:     1000,
 				DnsResolveTime: 5,
 			},
 			httpStats: nil,
@@ -308,10 +308,10 @@ func TestPing(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "HTTPS host",
+			name:      "HTTPS URL",
 			host:      "https://example.com",
-			reachable: true,
-			wantErr:   false,
+			reachable: false,
+			wantErr:   true,
 		},
 	}
 
@@ -392,8 +392,15 @@ func TestCollectHttpsStats(t *testing.T) {
 			timeout:    false,
 		},
 		{
+			name:       "IP address",
+			host:       "8.8.8.8",
+			statusCode: 200,
+			wantErr:    false,
+			timeout:    false,
+		},
+		{
 			name:       "Timeout host",
-			host:       "http://10.255.255.1", // Assuming this IP will timeout
+			host:       "https://10.255.255.1", // Assuming this IP will timeout
 			statusCode: 0,
 			wantErr:    true,
 			timeout:    true,
@@ -462,8 +469,8 @@ func TestCollectPingStats(t *testing.T) {
 		{
 			name:       "Valid HTTPS host",
 			host:       "https://example.com",
-			wantErr:    false,
-			reachable: true,
+			wantErr:    true,
+			reachable:  false,
 			packetLoss: 0.0,
 		},
 		{
@@ -536,6 +543,16 @@ func TestDnsResolveTime(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "Valid HTTPS host",
+			host:    "https://example.com",
+			wantErr: true,
+		},
+		{
+			name:    "www subdomain",
+			host:    "www.example.com",
+			wantErr: false,
+		},
+		{
 			name:    "Localhost",
 			host:    "localhost",
 			wantErr: false,
@@ -563,6 +580,94 @@ func TestDnsResolveTime(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Greater(t, duration, time.Duration(0))
 			}
+		})
+	}
+}
+
+func TestPingAfter(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		interval time.Duration
+		wantErr  bool
+	}{
+		{
+			name:     "Valid host with interval",
+			host:     "google.com",
+			interval: time.Second,
+			wantErr:  false,
+		},
+		{
+			name:     "Invalid host with interval",
+			host:     "invalid.host",
+			interval: time.Second,
+			wantErr:  true,
+		},
+		{
+			name:     "Empty host with interval",
+			host:     "",
+			interval: time.Second,
+			wantErr:  true,
+		},
+		{
+			name:     "Localhost with interval",
+			host:     "localhost",
+			interval: time.Second,
+			wantErr:  true,
+		},
+		{
+			name:     "IP address with interval",
+			host:     "8.8.8.8",
+			interval: time.Second,
+			wantErr:  false,
+		},
+		{
+			name:     "Non-existent domain with interval",
+			host:     "nonexistent.domain",
+			interval: time.Second,
+			wantErr:  true,
+		},
+		{
+			name:     "Timeout host with interval",
+			host:     "10.255.255.1", // Assuming this IP will timeout
+			interval: time.Second,
+			wantErr:  true,
+		},
+		{
+			name:     "HTTPS URL with interval",
+			host:     "https://example.com",
+			interval: time.Second,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := PingAfter(tt.host, tt.interval)
+
+			for i := 0; i < 3; i++ {
+				select {
+				case result := <-c:
+					printPingData(t, result)
+
+					assert.WithinDuration(t, time.Now(), result.Date, time.Second*3)
+					if tt.wantErr {
+						assert.False(t, result.DnsResolveTime.Valid && result.Latency.Valid && result.PacketLoss.Valid && result.Throughput.Valid && result.StatusCode.Valid)
+					} else {
+						assert.GreaterOrEqual(t, result.Latency.Int64, int64(0))
+						assert.Less(t, result.PacketLoss.Float64, 100.0)
+						assert.Greater(t, result.Throughput.Float64, 0.0)
+						assert.GreaterOrEqual(t, result.DnsResolveTime.Int64, int64(0))
+						assert.Equal(t, int64(200), result.StatusCode.Int64)
+					}
+
+				case <-time.After(10 * time.Second):
+					if !tt.wantErr {
+						t.Fatal("Test timed out")
+					}
+				}
+			}
+
 		})
 	}
 }

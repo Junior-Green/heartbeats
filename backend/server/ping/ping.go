@@ -12,9 +12,9 @@ import (
 	ping "github.com/prometheus-community/pro-bing"
 )
 
-const interval time.Duration = time.Second
-const packetCount int = 3
-const packetSize int = 512 //Byte
+const interval time.Duration = time.Second * 3
+const packetCount int = 10
+const packetSize int = 512 //Bytes
 const timeout = time.Second * 10
 
 type PingData struct {
@@ -56,9 +56,6 @@ func EmptyPingData() PingData {
 		StatusCode:     null.NewInt(0, false),
 	}
 }
-
-//TODO: collectPingStats and collectHttpsStats should be refactored to return a channel instead of being required to pass one,
-// so each function holds responsibility for creating and closing the channel.
 
 // Ping initiates a ping to the specified host and returns a channel that
 // receives PingData pointers. It returns an error if the pinger cannot be created.
@@ -105,21 +102,23 @@ func Ping(host string) <-chan PingData {
 	return c
 }
 
+// PingAfter sends ping data to a channel at regular intervals.
+//
+// Parameters:
+//   - host: The host to ping.
+//   - interval: The duration between each ping.
+//
+// Returns:
+//   A read-only channel of PingData that receives ping results at the specified interval.
 func PingAfter(host string, interval time.Duration) <-chan PingData {
 	c := make(chan PingData)
-	// go func() {
-	// 	for {
-	// 		time.Sleep(durations)
-	// 		c <- PingData{
-	// 			Date:        time.Now(),
-	// 			Latency:     null.IntFrom(1),
-	// 			PacketLoss:  null.FloatFrom(1.0),
-	// 			Throughput:  null.IntFrom(1),
-	// 			DnsResolved: null.IntFrom(1),
-	// 			StatusCode:  null.IntFrom(1),
-	// 		}
-	// 	}
-	// }()
+
+	go func() {
+		for range time.Tick(interval) {
+			c <- <-Ping(host)
+		}
+	}()
+
 	return c
 }
 
@@ -230,7 +229,7 @@ func calculateThroughput(totalBytes, trtt int64) float64 {
 // If an error occurs at any step, the function logs the error and sends nil to the channel.
 func collectHttpsStats(c chan<- *httpStats, host string) {
 	if !strings.HasPrefix(host, "http") {
-		host = "http://" + host
+		host = "https://" + host
 	}
 
 	dialer := &net.Dialer{Timeout: 5 * time.Second}

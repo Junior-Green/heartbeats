@@ -3,6 +3,8 @@ package server
 import (
 	"time"
 
+	"github.com/Junior-Green/heartbeats/logger"
+	"github.com/google/uuid"
 	"github.com/guregu/null/v5"
 )
 
@@ -15,10 +17,10 @@ type Metrics struct {
 }
 
 type Server struct {
-	Hostname string  `json:"hostname"`
-	Online   bool    `json:"online"`
-	Favorite bool    `json:"favorite"`
-	Metrics  Metrics `json:"metrics"`
+	Id       string `json:"id"`
+	Host string `json:"hostname"`
+	Online   bool   `json:"online"`
+	Favorite bool   `json:"favorite"`
 }
 
 type LatencyMarker struct {
@@ -44,4 +46,23 @@ type DnsResolvedMarker struct {
 type StatusCodeMarker struct {
 	Date       time.Time `json:"date"`
 	StatusCode null.Int  `json:"status_code"`
+}
+
+// NewServer creates a new Server instance with a unique ID and the specified host.
+// It returns the created Server and an error if the ID generation fails.
+//
+// Parameters:
+//   - host: The hostname or IP address for the server.
+//
+// Returns:
+//   - Server: The newly created Server instance.
+//   - error: An error if the UUID generation fails.
+func NewServer(host string) (Server, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		logger.Debugf("Error generating server ID: %v", err)
+		return Server{}, err
+	}
+
+	return Server{Id: id.String(), Host: host}, nil
 }

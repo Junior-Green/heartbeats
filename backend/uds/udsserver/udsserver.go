@@ -27,26 +27,26 @@ func (s *UDSServer) UDSRequestHandler() uds.UDSHandler {
 		switch req.Action {
 		case uds.GET:
 			if _, ok := s.getHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BADREQUEST}
+				return uds.UDSResponse{Status: uds.BadRequest}
 			}
 			return s.getHandlers[req.Resource](req)
 		case uds.PUT:
 			if _, ok := s.putHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BADREQUEST}
+				return uds.UDSResponse{Status: uds.BadRequest}
 			}
 			return s.putHandlers[req.Resource](req)
 		case uds.POST:
 			if _, ok := s.postHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BADREQUEST}
+				return uds.UDSResponse{Status: uds.BadRequest}
 			}
 			return s.postHandlers[req.Resource](req)
 		case uds.DELETE:
 			if _, ok := s.deleteHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BADREQUEST}
+				return uds.UDSResponse{Status: uds.BadRequest}
 			}
 			return s.deleteHandlers[req.Resource](req)
 		default:
-			return uds.UDSResponse{Status: uds.BADREQUEST}
+			return uds.UDSResponse{Status: uds.BadRequest}
 		}
 	}
 }

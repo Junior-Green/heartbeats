@@ -11,10 +11,10 @@ import (
 )
 
 const socketPath = "/var/run/heartbeats.socket"
-const dbPath = "/Library/Application Support/HeartBeats/heartbeats.db"
+const dsn = "/Library/Application Support/HeartBeats/heartbeats.db?cache=shared&mode=memory"
 
 func main() {
-	_, err := database.NewDatabase(dbPath)
+	_, err := database.NewDatabase(dsn)
 	if err != nil {
 		logger.Printf("Error initializing connection to database: %v", err)
 		os.Exit(1)
