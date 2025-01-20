@@ -22,7 +22,8 @@ type PingData struct {
 	Latency        null.Int   //Milliseconds
 	PacketLoss     null.Float //Percentage
 	Throughput     null.Float //Bits per second (bps)
-	DnsResolveTime null.Int   //Milliseconds
+	DnsResolveTime null.Int   //Millisecond
+	Rtt            null.Int   //Milliseconds
 	StatusCode     null.Int   //HTTP
 }
 
@@ -35,6 +36,7 @@ type pingStats struct {
 	PacketLoss     float64 //Percentage
 	Throughput     float64 //Bits per second (bps)
 	DnsResolveTime int64   //Milliseconds
+	Rtt            int64   //Milliseconds
 }
 
 // BlankPingData initializes and returns a pointer to a PingData struct
@@ -45,6 +47,7 @@ type pingStats struct {
 //   - PacketLoss: null float with value 0 and validity set to false
 //   - Throughput: null float with value 0 and validity set to false
 //   - DnsResolved: null integer with value 0 and validity set to false
+//   - Rtt: null integer with value 0 and validity set to false
 //   - StatusCode: null integer with value 0 and validity set to false
 func EmptyPingData() PingData {
 	return PingData{
@@ -53,6 +56,7 @@ func EmptyPingData() PingData {
 		PacketLoss:     null.NewFloat(0, false),
 		Throughput:     null.NewFloat(0, false),
 		DnsResolveTime: null.NewInt(0, false),
+		Rtt:            null.NewInt(0, false),
 		StatusCode:     null.NewInt(0, false),
 	}
 }
@@ -109,7 +113,8 @@ func Ping(host string) <-chan PingData {
 //   - interval: The duration between each ping.
 //
 // Returns:
-//   A read-only channel of PingData that receives ping results at the specified interval.
+//
+//	A read-only channel of PingData that receives ping results at the specified interval.
 func PingAfter(host string, interval time.Duration) <-chan PingData {
 	c := make(chan PingData)
 
@@ -148,6 +153,7 @@ func handlePacket(pkt *ping.Packet, totalBytes *int64, totalTime *int64) {
 //   - Latency: Average round-trip time in milliseconds.
 //   - PacketLoss: Percentage of lost packets.
 //   - Throughput: Calculated throughput based on total bytes and total round-trip time.
+//   - Rtt: Average round-trip time in milliseconds.
 //   - DnsResolved: Time taken to resolve the DNS in milliseconds.
 //
 // If there is an error during DNS resolution, pinger creation, or pinging, the function sends nil to the channel
@@ -191,6 +197,7 @@ func collectPingStats(c chan<- *pingStats, host string) {
 		Latency:        stats.AvgRtt.Milliseconds(),
 		PacketLoss:     stats.PacketLoss,
 		Throughput:     calculateThroughput(totalBytes, trtt),
+		Rtt:            stats.AvgRtt.Milliseconds(),
 		DnsResolveTime: resolveTime.Milliseconds(),
 	}
 }
@@ -303,7 +310,7 @@ func newPinger(host string, packetCount, packetSize int, interval, timeout time.
 // pingStats and httpStats if they are not nil.
 //
 // Parameters:
-//   - pingStats: A pointer to a pingStats struct containing latency, packet loss, and throughput data.
+//   - pingStats: A pointer to a pingStats struct containing latency, packet loss, rtt, and throughput data.
 //   - httpStats: A pointer to an httpStats struct containing HTTP status code and DNS resolve time.
 //
 // Returns:
@@ -316,6 +323,7 @@ func createPingData(pingStats *pingStats, httpStats *httpStats) PingData {
 		data.Latency = null.IntFrom(pingStats.Latency)
 		data.PacketLoss = null.FloatFrom(pingStats.PacketLoss)
 		data.Throughput = null.FloatFrom(pingStats.Throughput)
+		data.Rtt = null.IntFrom(pingStats.Rtt)
 		data.DnsResolveTime = null.IntFrom(pingStats.DnsResolveTime)
 	}
 

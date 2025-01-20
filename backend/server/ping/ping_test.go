@@ -172,6 +172,9 @@ func TestEmptyPingData(t *testing.T) {
 	assert.False(t, data.StatusCode.Valid)
 	assert.Equal(t, int64(0), data.StatusCode.Int64)
 
+	assert.False(t, data.Rtt.Valid)
+	assert.Equal(t, int64(0), data.Rtt.Int64)
+
 	assert.WithinDuration(t, time.Now(), data.Date, time.Second)
 }
 func TestCreatePingData(t *testing.T) {
@@ -190,6 +193,7 @@ func TestCreatePingData(t *testing.T) {
 				PacketLoss:     null.NewFloat(0, false),
 				Throughput:     null.NewFloat(0, false),
 				DnsResolveTime: null.NewInt(0, false),
+				Rtt:            null.NewInt(0, false),
 				StatusCode:     null.NewInt(0, false),
 			},
 		},
@@ -199,6 +203,7 @@ func TestCreatePingData(t *testing.T) {
 				Latency:        100,
 				PacketLoss:     0.5,
 				Throughput:     1000,
+				Rtt:            6,
 				DnsResolveTime: 5,
 			},
 			httpStats: nil,
@@ -207,6 +212,7 @@ func TestCreatePingData(t *testing.T) {
 				PacketLoss:     null.FloatFrom(0.5),
 				Throughput:     null.FloatFrom(1000),
 				DnsResolveTime: null.IntFrom(5),
+				Rtt:            null.IntFrom(6),
 				StatusCode:     null.NewInt(0, false),
 			},
 		},
@@ -221,6 +227,7 @@ func TestCreatePingData(t *testing.T) {
 				PacketLoss:     null.NewFloat(0, false),
 				Throughput:     null.NewFloat(0, false),
 				DnsResolveTime: null.NewInt(0, false),
+				Rtt:            null.NewInt(0, false),
 				StatusCode:     null.IntFrom(http.StatusOK),
 			},
 		},
@@ -230,10 +237,10 @@ func TestCreatePingData(t *testing.T) {
 				Latency:        100,
 				PacketLoss:     0.5,
 				Throughput:     1000,
+				Rtt:            4,
 				DnsResolveTime: 50,
 			},
 			httpStats: &httpStats{
-
 				StatusCode: http.StatusOK,
 			},
 			want: PingData{
@@ -241,6 +248,7 @@ func TestCreatePingData(t *testing.T) {
 				PacketLoss:     null.FloatFrom(0.5),
 				Throughput:     null.FloatFrom(1000),
 				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(4),
 				StatusCode:     null.IntFrom(http.StatusOK),
 			},
 		},
@@ -253,6 +261,7 @@ func TestCreatePingData(t *testing.T) {
 			assert.Equal(t, tt.want.PacketLoss, got.PacketLoss)
 			assert.Equal(t, tt.want.Throughput, got.Throughput)
 			assert.Equal(t, tt.want.DnsResolveTime, got.DnsResolveTime)
+			assert.Equal(t, tt.want.Rtt, got.Rtt)
 			assert.Equal(t, tt.want.StatusCode, got.StatusCode)
 		})
 	}
@@ -330,11 +339,13 @@ func TestPing(t *testing.T) {
 					assert.Zero(t, result.Latency.Int64)
 					assert.Zero(t, result.PacketLoss.Float64)
 					assert.Zero(t, result.Throughput.Float64)
+					assert.Zero(t, result.Rtt.Int64)
 					assert.Zero(t, result.StatusCode.Int64)
 				} else {
 					assert.GreaterOrEqual(t, result.Latency.Int64, int64(0))
 					assert.Less(t, result.PacketLoss.Float64, 100.0)
 					assert.Greater(t, result.Throughput.Float64, 0.0)
+					assert.Greater(t, result.Rtt.Int64, int64(0))
 					assert.Greater(t, result.DnsResolveTime.Int64, int64(0))
 					assert.Equal(t, int64(200), result.StatusCode.Int64)
 				}
@@ -504,12 +515,14 @@ func TestCollectPingStats(t *testing.T) {
 					assert.Zero(t, result.Latency)
 					assert.Zero(t, result.PacketLoss)
 					assert.Zero(t, result.Throughput)
+					assert.Zero(t, result.Rtt)
 					assert.GreaterOrEqual(t, result.DnsResolveTime, int64(0))
 				} else {
 					assert.NotNil(t, result)
 					assert.GreaterOrEqual(t, result.Latency, int64(0))
 					assert.Less(t, result.PacketLoss, 100.0)
 					assert.Greater(t, result.Throughput, 0.0)
+					assert.Greater(t, result.Rtt, int64(0))
 					assert.GreaterOrEqual(t, result.DnsResolveTime, int64(0))
 				}
 			case <-time.After(10 * time.Second):
@@ -658,6 +671,7 @@ func TestPingAfter(t *testing.T) {
 						assert.Less(t, result.PacketLoss.Float64, 100.0)
 						assert.Greater(t, result.Throughput.Float64, 0.0)
 						assert.GreaterOrEqual(t, result.DnsResolveTime.Int64, int64(0))
+						assert.Greater(t, result.Rtt.Int64, int64(0))
 						assert.Equal(t, int64(200), result.StatusCode.Int64)
 					}
 
@@ -677,6 +691,7 @@ func printPingData(t *testing.T, p PingData) {
 	t.Logf("PacketLoss: %.2f %%", p.PacketLoss.Float64)
 	t.Logf("Throughput: %.2f bps", p.Throughput.Float64)
 	t.Logf("DnsResolveTime: %d ms", p.DnsResolveTime.Int64)
+	t.Logf("Rtt: %d ms", p.Rtt.Int64)
 	t.Logf("StatusCode: %d", p.StatusCode.Int64)
 }
 
@@ -689,5 +704,6 @@ func printPingStats(t *testing.T, p *pingStats) {
 	t.Logf("Latency: %d ms", p.Latency)
 	t.Logf("PacketLoss: %.2f %%", p.PacketLoss)
 	t.Logf("Throughput: %.2f bps", p.Throughput)
+	t.Logf("Rtt: %d ms", p.Rtt)
 	t.Logf("DNS Resolve time: %d ms", p.DnsResolveTime)
 }
