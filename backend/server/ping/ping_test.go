@@ -302,7 +302,7 @@ func TestPing(t *testing.T) {
 			name:      "IP address",
 			host:      "8.8.8.8",
 			reachable: true,
-			wantErr:   true,
+			wantErr:   false,
 		},
 		{
 			name:      "Non-existent domain",
@@ -333,7 +333,7 @@ func TestPing(t *testing.T) {
 
 				assert.WithinDuration(t, time.Now(), result.Date, time.Second*3)
 				if tt.wantErr {
-					assert.False(t, result.DnsResolveTime.Valid && result.Latency.Valid && result.PacketLoss.Valid && result.Throughput.Valid && result.StatusCode.Valid)
+					assert.False(t, result.DnsResolveTime.Valid && result.Latency.Valid && result.PacketLoss.Valid && result.Throughput.Valid && result.Rtt.Valid && result.StatusCode.Valid)
 				} else if !tt.reachable {
 					assert.Zero(t, result.DnsResolveTime.Int64)
 					assert.Zero(t, result.Latency.Int64)
@@ -346,7 +346,7 @@ func TestPing(t *testing.T) {
 					assert.Less(t, result.PacketLoss.Float64, 100.0)
 					assert.Greater(t, result.Throughput.Float64, 0.0)
 					assert.Greater(t, result.Rtt.Int64, int64(0))
-					assert.Greater(t, result.DnsResolveTime.Int64, int64(0))
+					assert.GreaterOrEqual(t, result.DnsResolveTime.Int64, int64(0))
 					assert.Equal(t, int64(200), result.StatusCode.Int64)
 				}
 

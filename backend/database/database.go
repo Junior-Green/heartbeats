@@ -2,8 +2,8 @@ package database
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -14,30 +14,44 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type ErrNotFound struct{}
+type ErrNotFound struct {
+	Err error
+}
 
 func (e ErrNotFound) Error() string {
 	return "Record not found"
 }
 
-type ErrDuplicateRow struct{}
+type ErrDuplicateRow struct {
+	Err error
+}
 
 func (e ErrDuplicateRow) Error() string {
 	return "Record already exists"
 }
 
 type ErrCheckConstraint struct {
-	Column string
+	Err error
 }
 
 func (e ErrCheckConstraint) Error() string {
-	return fmt.Sprintf("Check constraint for column: %s", e.Column)
+	return fmt.Sprintf("Check constraint violation: %v", e.Err)
 }
 
-type ErrUniqueConstraint struct{}
+type ErrUniqueConstraint struct {
+	Err error
+}
 
 func (e ErrUniqueConstraint) Error() string {
 	return "Row already exists"
+}
+
+type ErrForeignConstraint struct {
+	Err error
+}
+
+func (e ErrForeignConstraint) Error() string {
+	return fmt.Sprintf("Foreign constraint violation: %v: ", e.Err)
 }
 
 type sqliteDatabase struct {
@@ -127,9 +141,9 @@ func (db *sqliteDatabase) AddServer(server server.Server) error {
 
 		switch strings.Fields(msg)[0] {
 		case "CHECK":
-			return ErrCheckConstraint{"Server.id"}
+			return ErrCheckConstraint{err}
 		case "UNIQUE":
-			return ErrUniqueConstraint{}
+			return ErrUniqueConstraint{err}
 		default:
 			return fmt.Errorf("Error adding server: %s", msg)
 		}
@@ -157,7 +171,7 @@ func (db *sqliteDatabase) DeleteServerByHost(host string) error {
 		return err
 	}
 	if num, err := res.RowsAffected(); err == nil && num == 0 {
-		return ErrNotFound{}
+		return ErrNotFound{err}
 	}
 
 	return nil
@@ -179,7 +193,7 @@ func (db *sqliteDatabase) UpdateOnlineStatusByHost(host string, online bool) err
 		return err
 	}
 	if num, err := res.RowsAffected(); err == nil && num == 0 {
-		return ErrNotFound{}
+		return ErrNotFound{err}
 	}
 
 	return nil
@@ -207,7 +221,7 @@ func (db *sqliteDatabase) UpdateFavoriteByHost(host string, favorite bool) error
 		return err
 	}
 	if num, err := res.RowsAffected(); err == nil && num == 0 {
-		return ErrNotFound{}
+		return ErrNotFound{err}
 	}
 
 	return nil
@@ -225,11 +239,11 @@ func (db *sqliteDatabase) UpdateFavoriteByHost(host string, favorite bool) error
 func (db *sqliteDatabase) AddPingMetricByHost(host string, data ping.PingData) error {
 	server, err := db.GetServerByHost(host)
 	if err != nil {
-		return err
+		return ErrNotFound{err}
 	}
 
 	markerId, err := db.getMarkerId(data)
-	if !errors.Is(err, sql.ErrNoRows) {
+	if reflect.TypeOf(err) != reflect.TypeOf(ErrNotFound{}) {
 		logger.Debugf("Error retrieving marker id: %v", err)
 		return err
 	}
@@ -270,10 +284,8 @@ func (db *sqliteDatabase) addMetric(tx *sql.Tx, t time.Time, serverId, markerId 
 	_, err := tx.Exec(query, uuid.NewString(), t.Format(time.DateTime), serverId, markerId)
 	if err != nil {
 		switch strings.Fields(err.Error())[0] {
-		case "CHECK":
-			return ErrCheckConstraint{"Marker.id"}
-		case "UNIQUE":
-			return ErrUniqueConstraint{}
+		case "FOREIGN":
+			return ErrForeignConstraint{err}
 		default:
 			return fmt.Errorf("Error adding marker: %v", err)
 		}
@@ -297,14 +309,13 @@ func (db *sqliteDatabase) addMarker(tx *sql.Tx, data ping.PingData) (string, err
 	markerId := uuid.NewString()
 	_, err := tx.Exec(query, markerId, data.Latency, data.PacketLoss, data.Throughput, data.DnsResolveTime, data.Rtt, data.StatusCode)
 	if err != nil {
-		tx.Rollback()
 		msg := err.Error()
 
 		switch strings.Fields(msg)[0] {
 		case "CHECK":
-			return "", ErrCheckConstraint{err.Error()}
+			return "", ErrCheckConstraint{err}
 		case "UNIQUE":
-			return "", ErrUniqueConstraint{}
+			return "", ErrUniqueConstraint{err}
 		default:
 			return "", fmt.Errorf("Error adding marker: %s", msg)
 		}
@@ -338,7 +349,7 @@ func (db *sqliteDatabase) getMarkerId(data ping.PingData) (string, error) {
 
 	var marker_id string
 	if err := row.Scan(&marker_id); err != nil {
-		return "", err
+		return "", ErrNotFound{err}
 	}
 
 	return marker_id, nil
@@ -350,9 +361,19 @@ func (s *sqliteDatabase) Close() {
 	s.db.Close()
 }
 
-// init initializes the sqliteDatabase by setting the maximum number of open connections
+// init initializes the SQLite database by setting the maximum number of open connections
 // to 1 and creating the necessary tables (Server, Marker, and Metric) if they do not
-// already exist. It returns an error if there is an issue executing the SQL statements.
+// already exist. It returns an error if the table creation query fails.
+//
+// The Server table stores information about servers, including their ID, host, online
+// status, and whether they are marked as favorite.
+//
+// The Marker table stores various metrics related to server performance, such as latency,
+// packet loss, throughput, DNS resolution time, round-trip time (RTT), and status code.
+//
+// The Metric table links servers and markers, recording the datetime of the metric,
+// the server ID, and the marker ID. It also enforces foreign key constraints to ensure
+// referential integrity.
 func (db *sqliteDatabase) init() error {
 	db.db.SetMaxOpenConns(1)
 
@@ -366,12 +387,12 @@ func (db *sqliteDatabase) init() error {
 
 	CREATE TABLE IF NOT EXISTS Marker (
 		id CHAR(36) PRIMARY KEY CHECK (LENGTH(id) = 36),
-		latency INTEGER,
-		packet_loss REAL,
-		throughput REAL,
-		dns_resolved INTEGER,
-		rtt INTEGER,
-		status_code INTEGER,
+		latency INTEGER CHECK (latency >= 0),
+		packet_loss REAL CHECK (packet_loss >= 0 AND packet_loss <= 100),
+		throughput REAL CHECK (throughput >= 0),
+		dns_resolved INTEGER CHECK (dns_resolved >= 0),
+		rtt INTEGER CHECK (rtt >= 0),
+		status_code INTEGER CHECK (status_code >= 0),
 		UNIQUE (latency, packet_loss, throughput, dns_resolved, rtt, status_code)
 	);
 
@@ -381,7 +402,7 @@ func (db *sqliteDatabase) init() error {
 		server_id CHAR(36) NOT NULL,
 		marker_id CHAR(36) NOT NULL,
 		FOREIGN KEY (server_id) REFERENCES Server(id) ON DELETE CASCADE, 
-		FOREIGN KEY (marker_id) REFERENCES Marker(id)
+		FOREIGN KEY (marker_id) REFERENCES Marker(id) ON DELETE CASCADE
 	);`
 
 	if _, err := db.db.Exec(query); err != nil {
@@ -392,16 +413,17 @@ func (db *sqliteDatabase) init() error {
 	return nil
 }
 
-// NewDatabase creates a new sqliteDatabase instance and establishes a connection to the SQLite database
-// specified by the given Data Source Name (DSN). It returns a pointer to the sqliteDatabase and an error
-// if any issues occur during the process.
+// NewDatabase creates a new sqliteDatabase instance by opening a connection to the SQLite database
+// specified by the given Data Source Name (DSN). It ensures that foreign key enforcement is enabled
+// and initializes the database.
 //
 // Parameters:
-//   - dsn: A string representing the Data Source Name for the SQLite database.
+//   - dsn: The Data Source Name (DSN) string for connecting to the SQLite database.
 //
 // Returns:
 //   - *sqliteDatabase: A pointer to the initialized sqliteDatabase instance.
-//   - error: An error if there is an issue opening the database, establishing a connection, or initializing the database.
+//   - error: An error if there was an issue opening the database, establishing the connection,
+//     enabling foreign key enforcement, or initializing the database.
 func NewDatabase(dsn string) (*sqliteDatabase, error) {
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
@@ -411,6 +433,12 @@ func NewDatabase(dsn string) (*sqliteDatabase, error) {
 
 	if err = db.Ping(); err != nil {
 		logger.Printf("Error establishing connection to database: %v", err)
+		return nil, err
+	}
+
+	//Enable foreign key enforcement
+	if _, err := db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		logger.Printf("Error setting foreign key enforcement: %v", err)
 		return nil, err
 	}
 

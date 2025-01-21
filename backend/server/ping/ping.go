@@ -12,8 +12,8 @@ import (
 	ping "github.com/prometheus-community/pro-bing"
 )
 
-const interval time.Duration = time.Second * 3
-const packetCount int = 10
+const interval time.Duration = time.Second * 1
+const packetCount int = 3
 const packetSize int = 512 //Bytes
 const timeout = time.Second * 10
 

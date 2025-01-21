@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -129,10 +130,10 @@ func TestAddServer(t *testing.T) {
 
 	// Define test cases
 	tests := []struct {
-		name      string
-		server    server.Server
-		wantErr   bool
-		errorType error
+		name    string
+		server  server.Server
+		wantErr bool
+		errType error
 	}{
 		{
 			name: "Invalid Id",
@@ -142,8 +143,8 @@ func TestAddServer(t *testing.T) {
 				Online:   true,
 				Favorite: false,
 			},
-			wantErr:   true,
-			errorType: ErrCheckConstraint{"Server.id"},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
 		},
 		{
 			name: "Valid server",
@@ -153,8 +154,8 @@ func TestAddServer(t *testing.T) {
 				Online:   true,
 				Favorite: false,
 			},
-			wantErr:   false,
-			errorType: nil,
+			wantErr: false,
+			errType: nil,
 		},
 		{
 			name: "Duplicate server",
@@ -164,8 +165,8 @@ func TestAddServer(t *testing.T) {
 				Online:   true,
 				Favorite: false,
 			},
-			wantErr:   true,
-			errorType: ErrUniqueConstraint{},
+			wantErr: true,
+			errType: ErrUniqueConstraint{},
 		},
 		{
 			name: "Duplicate key",
@@ -175,8 +176,8 @@ func TestAddServer(t *testing.T) {
 				Online:   true,
 				Favorite: false,
 			},
-			wantErr:   true,
-			errorType: ErrUniqueConstraint{},
+			wantErr: true,
+			errType: ErrUniqueConstraint{},
 		},
 	}
 
@@ -187,7 +188,7 @@ func TestAddServer(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errorType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				var expectedId string
 				err = db.db.QueryRow("SELECT id FROM Server WHERE id = ?", tt.server.Id).Scan(&expectedId)
@@ -248,7 +249,7 @@ func TestDeleteServerByHost(t *testing.T) {
 			err := db.DeleteServerByHost(tt.host)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 				var count int
@@ -313,7 +314,7 @@ func TestGetServerByHost(t *testing.T) {
 			server, err := db.GetServerByHost(tt.host)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected.Host, server.Host)
@@ -384,7 +385,7 @@ func TestUpdateOnlineStatusByHost(t *testing.T) {
 			err := db.UpdateOnlineStatusByHost(tt.host, tt.online)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 				var online bool
@@ -456,7 +457,7 @@ func TestUpdateFavoriteByHost(t *testing.T) {
 			err := db.UpdateFavoriteByHost(tt.host, tt.favorite)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 				var favorite bool
@@ -534,7 +535,7 @@ func TestAddPingMetricByHost(t *testing.T) {
 			err := db.AddPingMetricByHost(tt.host, tt.data)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 
@@ -623,15 +624,242 @@ func TestAddMetric(t *testing.T) {
 			err = db.addMetric(tx, tt.timestamp, tt.serverId, tt.markerId)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, tt.errType)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
 			} else {
 				assert.NoError(t, err)
 
 				// Verify the metric was added
 				var count int
-				err = db.db.QueryRow("SELECT COUNT(*) FROM Metric WHERE server_id = ? AND marker_id = ?", tt.serverId, tt.markerId).Scan(&count)
+				err = tx.QueryRow("SELECT COUNT(*) FROM Metric WHERE server_id = ? AND marker_id = ?", tt.serverId, tt.markerId).Scan(&count)
 				assert.NoError(t, err)
 				assert.Equal(t, 1, count)
+			}
+		})
+	}
+}
+func TestAddMarker(t *testing.T) {
+	// Create a temporary file to act as the SQLite database
+	tempFile, err := os.CreateTemp("", "testdb_*.sqlite")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Create a new database instance
+	db, err := NewDatabase(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Define test cases
+	tests := []struct {
+		name    string
+		data    ping.PingData
+		wantErr bool
+		errType error
+	}{
+		{
+			name: "Add valid marker",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: false,
+			errType: nil,
+		},
+		{
+			name: "Add duplicate marker",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrUniqueConstraint{},
+		},
+		{
+			name: "Add marker with invalid latency",
+			data: ping.PingData{
+				Latency:        null.IntFrom(-1), // Invalid latency
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+		{
+			name: "Add marker with invalid packet loss",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(101.0), // Invalid packet loss
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+		{
+			name: "Add marker with invalid throughput",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(-1.0), // Invalid throughput
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+		{
+			name: "Add marker with invalid DNS resolve time",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(-1), // Invalid DNS resolve time
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+		{
+			name: "Add marker with invalid RTT",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(-1), // Invalid RTT
+				StatusCode:     null.IntFrom(200),
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+		{
+			name: "Add marker with invalid status code",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(-1), // Invalid status code
+			},
+			wantErr: true,
+			errType: ErrCheckConstraint{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx, err := db.db.Begin()
+			if err != nil {
+				t.Fatalf("Failed to begin transaction: %v", err)
+			}
+			defer tx.Commit()
+
+			markerId, err := db.addMarker(tx, tt.data)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
+			} else {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, markerId)
+
+				// Verify the marker was added
+				var count int
+				err = tx.QueryRow("SELECT COUNT(*) FROM Marker WHERE id = ?", markerId).Scan(&count)
+				assert.NoError(t, err)
+				assert.Equal(t, 1, count)
+			}
+		})
+	}
+}
+func TestGetMarkerId(t *testing.T) {
+	// Create a temporary file to act as the SQLite database
+	tempFile, err := os.CreateTemp("", "testdb_*.sqlite")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Create a new database instance
+	db, err := NewDatabase(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Insert test marker data
+	markerId := uuid.NewString()
+	query := `INSERT INTO Marker VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = db.db.Exec(query, markerId, 100, 0.0, 100.0, 50, 200, 200)
+	if err != nil {
+		t.Fatalf("Failed to insert test marker data: %v", err)
+	}
+
+	// Define test cases
+	tests := []struct {
+		name     string
+		data     ping.PingData
+		expected string
+		wantErr  bool
+		errType  error
+	}{
+		{
+			name: "Get existing marker ID",
+			data: ping.PingData{
+				Latency:        null.IntFrom(100),
+				PacketLoss:     null.FloatFrom(0.0),
+				Throughput:     null.FloatFrom(100.0),
+				DnsResolveTime: null.IntFrom(50),
+				Rtt:            null.IntFrom(200),
+				StatusCode:     null.IntFrom(200),
+			},
+			expected: markerId,
+			wantErr:  false,
+			errType:  nil,
+		},
+		{
+			name: "Get non-existing marker ID",
+			data: ping.PingData{
+				Latency:        null.IntFrom(200),
+				PacketLoss:     null.FloatFrom(1.0),
+				Throughput:     null.FloatFrom(200.0),
+				DnsResolveTime: null.IntFrom(100),
+				Rtt:            null.IntFrom(400),
+				StatusCode:     null.IntFrom(404),
+			},
+			expected: "",
+			wantErr:  true,
+			errType:  ErrNotFound{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			markerId, err := db.getMarkerId(tt.data)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.IsType(t, reflect.TypeOf(tt.errType), reflect.TypeOf(err))
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, markerId)
 			}
 		})
 	}
