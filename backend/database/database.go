@@ -54,7 +54,7 @@ func (e ErrForeignConstraint) Error() string {
 	return fmt.Sprintf("Foreign constraint violation: %v: ", e.Err)
 }
 
-type sqliteDatabase struct {
+type SqliteDatabase struct {
 	db *sql.DB
 }
 
@@ -62,7 +62,7 @@ type sqliteDatabase struct {
 // It returns a slice of server.Server and an error if any occurs during the query execution or row scanning.
 // The function queries the "Server" table and scans each row into a server.Server struct.
 // If an error occurs during the query or scanning process, it logs the error and returns it.
-func (db *sqliteDatabase) GetAllServers() ([]server.Server, error) {
+func (db *SqliteDatabase) GetAllServers() ([]server.Server, error) {
 	rows, err := db.db.Query("SELECT * FROM Server")
 	if err != nil {
 		return nil, err
@@ -89,8 +89,73 @@ func (db *sqliteDatabase) GetAllServers() ([]server.Server, error) {
 	return servers, nil
 }
 
-func (db *sqliteDatabase) GetMetricsByHost(host string) (server.Metrics, error) {
-	panic("not implemented")
+// GetMetricsByHost retrieves the metrics for a given host from the database.
+// It first fetches the server information using the host, then queries the metrics
+// associated with the server. The metrics include datetime, latency, packet loss,
+// throughput, DNS resolved time, RTT, and status code.
+//
+// Parameters:
+//   - host: The hostname for which metrics are to be retrieved.
+//
+// Returns:
+//   - server.Metrics: A struct containing the metrics data for the specified host.
+//   - error: An error object if any error occurs during the process.
+//
+// The function performs the following steps:
+//  1. Fetches the server information using the provided host.
+//  2. Executes a SQL query to retrieve the metrics associated with the server.
+//  3. Scans the query results and populates the metrics struct.
+//  4. Returns the populated metrics struct or an error if any occurs.
+func (db *SqliteDatabase) GetMetricsByHost(host string) (server.Metrics, error) {
+	s, err := db.GetServerByHost(host)
+	if err != nil {
+		return server.Metrics{}, err
+	}
+
+	query := `
+	SELECT datetime, latency, packet_loss, throughput, dns_resolved, rtt, status_code
+	FROM Metric 
+	INNER JOIN Marker ON Metric.marker_id=Marker.id
+	WHERE server_id=?;
+	`
+	rows, err := db.db.Query(query, s.Id)
+	if err != nil {
+		return server.Metrics{}, err
+	}
+	defer rows.Close()
+
+	metrics := server.Metrics{}
+	for rows.Next() {
+		var (
+			dateStr  string
+			pingData ping.PingData
+		)
+
+		err := rows.Scan(&dateStr, &pingData.Latency, &pingData.PacketLoss, &pingData.Throughput, &pingData.DnsResolveTime, &pingData.Rtt, &pingData.StatusCode)
+		if err != nil {
+			logger.Debugf("Error scanning rows: %v", err)
+			return server.Metrics{}, err
+		}
+
+		pingData.Date, err = time.Parse(time.DateTime, dateStr)
+		if err != nil {
+			return server.Metrics{}, err
+		}
+
+		metrics.DnsResolved = append(metrics.DnsResolved, server.DnsResolvedMarker{Date: pingData.Date, DnsResolved: pingData.DnsResolveTime})
+		metrics.Latency = append(metrics.Latency, server.LatencyMarker{Date: pingData.Date, Latency: pingData.Latency})
+		metrics.PacketLoss = append(metrics.PacketLoss, server.PacketLossMarker{Date: pingData.Date, PacketLoss: pingData.PacketLoss})
+		metrics.Rtt = append(metrics.Rtt, server.RttMarker{Date: pingData.Date, Rtt: pingData.Rtt})
+		metrics.StatusCode = append(metrics.StatusCode, server.StatusCodeMarker{Date: pingData.Date, StatusCode: pingData.StatusCode})
+		metrics.Throughput = append(metrics.Throughput, server.ThroughputMarker{Date: pingData.Date, Throughput: pingData.Throughput})
+	}
+
+	if err = rows.Err(); err != nil {
+		logger.Debugf("Error scanning rows: %v", err)
+		return server.Metrics{}, err
+	}
+
+	return metrics, nil
 }
 
 // GetServerByHost retrieves a server from the database by its host.
@@ -107,7 +172,7 @@ func (db *sqliteDatabase) GetMetricsByHost(host string) (server.Metrics, error) 
 //
 //	server.Server - the server with the specified host
 //	error - an error if the server is not found or if there is an issue scanning the result
-func (db *sqliteDatabase) GetServerByHost(host string) (server.Server, error) {
+func (db *SqliteDatabase) GetServerByHost(host string) (server.Server, error) {
 	query := "SELECT * FROM Server WHERE host = ?"
 
 	row := db.db.QueryRow(query, host)
@@ -131,7 +196,7 @@ func (db *sqliteDatabase) GetServerByHost(host string) (server.Server, error) {
 //
 // Returns:
 //   - error: An error object if the insertion fails, otherwise nil.
-func (db *sqliteDatabase) AddServer(server server.Server) error {
+func (db *SqliteDatabase) AddServer(server server.Server) error {
 	query := "INSERT INTO Server VALUES (?,?,?,?)"
 
 	_, err := db.db.Exec(query, server.Id, server.Host, server.Online, server.Favorite)
@@ -162,7 +227,7 @@ func (db *sqliteDatabase) AddServer(server server.Server) error {
 //
 // Returns:
 //   - error: An error if the deletion fails or no rows are affected, otherwise nil.
-func (db *sqliteDatabase) DeleteServerByHost(host string) error {
+func (db *SqliteDatabase) DeleteServerByHost(host string) error {
 	query := "DELETE FROM Server WHERE host = ?"
 
 	res, err := db.db.Exec(query, host)
@@ -181,7 +246,7 @@ func (db *sqliteDatabase) DeleteServerByHost(host string) error {
 // It takes the host string and a boolean indicating the online status.
 // If the update is successful, it returns nil. If the server is not found, it returns an ErrNotFound.
 // If there is an error during the update, it logs the error and returns it.
-func (db *sqliteDatabase) UpdateOnlineStatusByHost(host string, online bool) error {
+func (db *SqliteDatabase) UpdateOnlineStatusByHost(host string, online bool) error {
 	query := `
 	UPDATE Server 
 	SET online = ?
@@ -209,7 +274,7 @@ func (db *sqliteDatabase) UpdateOnlineStatusByHost(host string, online bool) err
 //
 // Returns:
 //   - error: An error if the update operation fails or if the server is not found.
-func (db *sqliteDatabase) UpdateFavoriteByHost(host string, favorite bool) error {
+func (db *SqliteDatabase) UpdateFavoriteByHost(host string, favorite bool) error {
 	query := `
 	UPDATE Server 
 	SET favorite = ?
@@ -236,7 +301,7 @@ func (db *sqliteDatabase) UpdateFavoriteByHost(host string, favorite bool) error
 //
 // Returns:
 //   - error: An error if any issues occur during the process, otherwise nil.
-func (db *sqliteDatabase) AddPingMetricByHost(host string, data ping.PingData) error {
+func (db *SqliteDatabase) AddPingMetricByHost(host string, data ping.PingData) error {
 	server, err := db.GetServerByHost(host)
 	if err != nil {
 		return ErrNotFound{err}
@@ -278,7 +343,7 @@ func (db *sqliteDatabase) AddPingMetricByHost(host string, data ping.PingData) e
 // - serverId: the ID of the server associated with the metric.
 // - markerId: the ID of the marker associated with the metric.
 // It returns an error if the insertion fails due to a constraint violation or any other reason.
-func (db *sqliteDatabase) addMetric(tx *sql.Tx, t time.Time, serverId, markerId string) error {
+func (db *SqliteDatabase) addMetric(tx *sql.Tx, t time.Time, serverId, markerId string) error {
 	query := `INSERT INTO Metric VALUES (?, ?, ?, ?)`
 
 	_, err := tx.Exec(query, uuid.NewString(), t.Format(time.DateTime), serverId, markerId)
@@ -303,7 +368,7 @@ func (db *sqliteDatabase) addMetric(tx *sql.Tx, t time.Time, serverId, markerId 
 // Returns:
 // - string: The generated marker ID.
 // - error: An error if the insertion fails, including specific errors for check and unique constraints.
-func (db *sqliteDatabase) addMarker(tx *sql.Tx, data ping.PingData) (string, error) {
+func (db *SqliteDatabase) addMarker(tx *sql.Tx, data ping.PingData) (string, error) {
 	query := `INSERT INTO Marker VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	markerId := uuid.NewString()
@@ -336,7 +401,7 @@ func (db *sqliteDatabase) addMarker(tx *sql.Tx, data ping.PingData) (string, err
 // Returns:
 //   - string: The marker ID if a matching record is found, otherwise an empty string.
 //   - error: An error if the query execution or row scanning fails, otherwise nil.
-func (db *sqliteDatabase) getMarkerId(data ping.PingData) (string, error) {
+func (db *SqliteDatabase) getMarkerId(data ping.PingData) (string, error) {
 	query := `
 	SELECT id FROM Marker WHERE
 	latency = ? AND packet_loss = ? AND throughput = ? AND dns_resolved = ? AND status_code = ?;
@@ -357,7 +422,7 @@ func (db *sqliteDatabase) getMarkerId(data ping.PingData) (string, error) {
 
 // Close closes the database connection.
 // It is important to call this method to release any resources held by the database.
-func (s *sqliteDatabase) Close() {
+func (s *SqliteDatabase) Close() {
 	s.db.Close()
 }
 
@@ -374,7 +439,7 @@ func (s *sqliteDatabase) Close() {
 // The Metric table links servers and markers, recording the datetime of the metric,
 // the server ID, and the marker ID. It also enforces foreign key constraints to ensure
 // referential integrity.
-func (db *sqliteDatabase) init() error {
+func (db *SqliteDatabase) init() error {
 	db.db.SetMaxOpenConns(1)
 
 	query := `
@@ -413,7 +478,7 @@ func (db *sqliteDatabase) init() error {
 	return nil
 }
 
-// NewDatabase creates a new sqliteDatabase instance by opening a connection to the SQLite database
+// NewDatabase creates a new SqliteDatabase instance by opening a connection to the SQLite database
 // specified by the given Data Source Name (DSN). It ensures that foreign key enforcement is enabled
 // and initializes the database.
 //
@@ -421,10 +486,10 @@ func (db *sqliteDatabase) init() error {
 //   - dsn: The Data Source Name (DSN) string for connecting to the SQLite database.
 //
 // Returns:
-//   - *sqliteDatabase: A pointer to the initialized sqliteDatabase instance.
+//   - *SqliteDatabase: A pointer to the initialized SqliteDatabase instance.
 //   - error: An error if there was an issue opening the database, establishing the connection,
 //     enabling foreign key enforcement, or initializing the database.
-func NewDatabase(dsn string) (*sqliteDatabase, error) {
+func NewDatabase(dsn string) (*SqliteDatabase, error) {
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		logger.Printf("Error opening database: %v", err)
@@ -442,7 +507,7 @@ func NewDatabase(dsn string) (*sqliteDatabase, error) {
 		return nil, err
 	}
 
-	sqlDb := &sqliteDatabase{db: db}
+	sqlDb := &SqliteDatabase{db: db}
 	if err = sqlDb.init(); err != nil {
 		logger.Printf("Error initializing database: %v", err)
 		return nil, err

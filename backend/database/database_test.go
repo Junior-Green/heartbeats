@@ -864,3 +864,98 @@ func TestGetMarkerId(t *testing.T) {
 		})
 	}
 }
+func TestGetMetricsByHost(t *testing.T) {
+	// Create a temporary file to act as the SQLite database
+	tempFile, err := os.CreateTemp("", "testdb_*.sqlite")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Create a new database instance
+	db, err := NewDatabase(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Insert test server data
+	serv := server.Server{Id: uuid.NewString(), Host: "host1", Online: true, Favorite: false}
+	err = db.AddServer(serv)
+	if err != nil {
+		t.Fatalf("Failed to insert test server data: %v", err)
+	}
+
+	// Insert test marker data
+	markerId := uuid.NewString()
+	query := `INSERT INTO Marker VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = db.db.Exec(query, markerId, 100, 0.0, 100.0, 50, 200, 200)
+	if err != nil {
+		t.Fatalf("Failed to insert test marker data: %v", err)
+	}
+
+	// Insert test metric data
+	metricId := uuid.NewString()
+	query = `INSERT INTO Metric VALUES (?, ?, ?, ?)`
+	_, err = db.db.Exec(query, metricId, time.Now().Format(time.DateTime), serv.Id, markerId)
+	if err != nil {
+		t.Fatalf("Failed to insert test metric data: %v", err)
+	}
+
+	// Define test cases
+	tests := []struct {
+		name     string
+		host     string
+		wantErr  bool
+		expected server.Metrics
+	}{
+		{
+			name:    "Get metrics for existing host",
+			host:    "host1",
+			wantErr: false,
+			expected: server.Metrics{
+				DnsResolved: []server.DnsResolvedMarker{
+					{Date: time.Now(), DnsResolved: null.IntFrom(50)},
+				},
+				Latency: []server.LatencyMarker{
+					{Date: time.Now(), Latency: null.IntFrom(100)},
+				},
+				PacketLoss: []server.PacketLossMarker{
+					{Date: time.Now(), PacketLoss: null.FloatFrom(0.0)},
+				},
+				Rtt: []server.RttMarker{
+					{Date: time.Now(), Rtt: null.IntFrom(200)},
+				},
+				StatusCode: []server.StatusCodeMarker{
+					{Date: time.Now(), StatusCode: null.IntFrom(200)},
+				},
+				Throughput: []server.ThroughputMarker{
+					{Date: time.Now(), Throughput: null.FloatFrom(100.0)},
+				},
+			},
+		},
+		{
+			name:     "Get metrics for non-existing host",
+			host:     "nonexistent",
+			wantErr:  true,
+			expected: server.Metrics{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metrics, err := db.GetMetricsByHost(tt.host)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, len(tt.expected.DnsResolved), len(metrics.DnsResolved))
+				assert.Equal(t, len(tt.expected.Latency), len(metrics.Latency))
+				assert.Equal(t, len(tt.expected.PacketLoss), len(metrics.PacketLoss))
+				assert.Equal(t, len(tt.expected.Rtt), len(metrics.Rtt))
+				assert.Equal(t, len(tt.expected.StatusCode), len(metrics.StatusCode))
+				assert.Equal(t, len(tt.expected.Throughput), len(metrics.Throughput))
+			}
+		})
+	}
+}

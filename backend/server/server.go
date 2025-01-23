@@ -14,11 +14,12 @@ type Metrics struct {
 	Throughput  []ThroughputMarker  `json:"throughput"`
 	DnsResolved []DnsResolvedMarker `json:"dns_resolved"`
 	StatusCode  []StatusCodeMarker  `json:"status_code"`
+	Rtt         []RttMarker         `json:"rtt"`
 }
 
 type Server struct {
 	Id       string `json:"id"`
-	Host string `json:"hostname"`
+	Host     string `json:"hostname"`
 	Online   bool   `json:"online"`
 	Favorite bool   `json:"favorite"`
 }
@@ -41,6 +42,11 @@ type ThroughputMarker struct {
 type DnsResolvedMarker struct {
 	Date        time.Time `json:"date"`
 	DnsResolved null.Int  `json:"dns_resolved"`
+}
+
+type RttMarker struct {
+	Date time.Time `json:"date"`
+	Rtt  null.Int  `json:"rtt"`
 }
 
 type StatusCodeMarker struct {

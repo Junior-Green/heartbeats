@@ -15,7 +15,7 @@ const retry = 5
 
 type action string
 type status int
-type UDSHandler func(UDSRequest) UDSResponse
+type UDSHandler func(UDSRequest, *UDSResponse)
 
 const (
 	Success status = iota
@@ -61,7 +61,7 @@ type UDSResponse struct {
 // and a listener to accept incoming connections.
 type socketConn struct {
 	socketPath string
-	handler    func(UDSRequest) UDSResponse
+	handler    UDSHandler
 	listener   net.Listener
 }
 
@@ -89,10 +89,12 @@ func (s *socketConn) Listen() {
 // If any error occurs during reading, unmarshalling, marshalling, or writing, it logs the error.
 //
 // Parameters:
-//   c (net.Conn): The network connection to read from and write to.
+//
+//	c (net.Conn): The network connection to read from and write to.
 //
 // Note:
-//   The connection is closed at the end of the function.
+//
+//	The connection is closed at the end of the function.
 func (s *socketConn) handleRequest(c net.Conn) {
 	defer c.Close()
 	c.SetDeadline(time.Now().Add(timeout))
@@ -108,7 +110,9 @@ func (s *socketConn) handleRequest(c net.Conn) {
 		return
 	}
 
-	resp := s.handler(req)
+	resp := &UDSResponse{Status: Success}
+	s.handler(req, resp)
+
 	bytes, err := json.Marshal(resp)
 	if err != nil {
 		logger.Printf("Error marshalling response: %v", err)
@@ -153,7 +157,8 @@ func NewSocketConn(socketPath string, handler UDSHandler) (*socketConn, error) {
 	}
 
 	if socket.listener == nil {
-		panic("ERROR: Could not start listener")
+		logger.Debug("ERROR: Could not start listener")
+		return nil, fmt.Errorf("ERROR: Could not start listener")
 	}
 
 	return socket, nil
