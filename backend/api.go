@@ -12,7 +12,7 @@ import (
 // It sets the response status to uds.Success.
 func handlePing() uds.UDSHandler {
 	return func(_ uds.UDSRequest, r *uds.UDSResponse) {
-		r.Status = uds.Success
+		uds.Ok(r, nil)
 	}
 }
 
@@ -25,16 +25,16 @@ func handleGetAllServers(db *database.SqliteDatabase) uds.UDSHandler {
 	return func(req uds.UDSRequest, res *uds.UDSResponse) {
 		servers, err := db.GetAllServers()
 		if err != nil {
-			res.Status = uds.BadRequest
+			uds.Error(res, "Error getting all servers", uds.Internal)
 			return
 		}
 
 		bytes, err := json.Marshal(servers)
 		if err != nil {
-			res.Status = uds.Success
-			res.Payload = bytes
+			uds.Error(res, "Error marshalling server array", uds.Internal)
 			return
 		}
+		uds.Ok(res, bytes)
 	}
 }
 
@@ -58,23 +58,23 @@ func handleGetMetrics(db *database.SqliteDatabase) uds.UDSHandler {
 
 		var b body
 		if err := json.Unmarshal(req.Payload, &b); err != nil {
-			res.Status = uds.BadRequest
+			uds.Error(res, "Error unmarshalling JSON payload", uds.Internal)
 			return
 		}
 
 		metrics, err := db.GetMetricsByHost(b.Host)
 		if err != nil {
-			res.Status = uds.BadRequest
+			uds.Error(res, "Error getting metrics", uds.Internal)
 			return
 		}
 
 		bytes, err := json.Marshal(metrics)
 		if err != nil {
-			res.Status = uds.BadRequest
+			uds.Error(res, "Error marshalling metrics array", uds.Internal)
 			return
 		}
 
-		res.Payload = bytes
+		uds.Ok(res, bytes)
 	}
 }
 
@@ -179,7 +179,18 @@ func handleDeleteServerByHost(db *database.SqliteDatabase) uds.UDSHandler {
 	}
 }
 
-func handleUpdateOnlineStatus(db *database.SqliteDatabase) uds.UDSHandler {
+// handleUpdateFavorite handles the update of a favorite status for a given host.
+// It expects a JSON payload with the host and favorite status in the request body.
+// If the payload is invalid, it responds with a BadRequest status.
+// If the database update fails, it responds with an Error status.
+// On success, it responds with a Success status.
+//
+// Parameters:
+// - db: A pointer to the SqliteDatabase instance.
+//
+// Returns:
+// - A UDSHandler function that processes the update favorite request.
+func handleUpdateFavorite(db *database.SqliteDatabase) uds.UDSHandler {
 	return func(req uds.UDSRequest, res *uds.UDSResponse) {
 		type body struct {
 			Host     string `json:"host"`
@@ -192,8 +203,8 @@ func handleUpdateOnlineStatus(db *database.SqliteDatabase) uds.UDSHandler {
 			return
 		}
 
-		if err := db.UpdateOnlineStatusByHost(b.Host, b.Favorite); err != nil {
-			res.Status = uds.Error
+		if err := db.UpdateFavoriteByHost(b.Host, b.Favorite); err != nil {
+			res.Status = uds.Internal
 			return
 		}
 

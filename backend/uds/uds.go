@@ -21,7 +21,7 @@ const (
 	Success status = iota
 	BadRequest
 	NotFound
-	Error
+	Internal
 )
 
 const (
@@ -162,4 +162,34 @@ func NewSocketConn(socketPath string, handler UDSHandler) (*socketConn, error) {
 	}
 
 	return socket, nil
+}
+
+// Ok sets the status of the given UDSResponse to Success and assigns the provided payload to it.
+// It returns the modified UDSResponse.
+//
+// Parameters:
+//   - resp: A pointer to the UDSResponse that will be modified.
+//   - payload: A byte slice containing the payload to be assigned to the response.
+//
+// Returns:
+//   - A pointer to the modified UDSResponse with the status set to Success and the payload assigned.
+func Ok(resp *UDSResponse, payload []byte) *UDSResponse {
+	resp.Status = Success
+	resp.Payload = payload
+	return resp
+}
+
+// Error sets the status code and error message in the UDSResponse.
+// 
+// Parameters:
+//   resp - The UDSResponse to be modified.
+//   error - The error message to be set in the response payload.
+//   statusCode - The status code to be set in the response.
+//
+// Returns:
+//   The modified UDSResponse with the specified status code and error message.
+func Error(resp *UDSResponse, error string, statusCode status) *UDSResponse {
+	resp.Status = statusCode
+	resp.Payload = []byte(error)
+	return resp
 }

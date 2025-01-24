@@ -23,30 +23,34 @@ func (s *UDSServer) AddDeleteHandler(resource string, handler uds.UDSHandler) {
 }
 
 func (s *UDSServer) UDSRequestHandler() uds.UDSHandler {
-	return func(req uds.UDSRequest) uds.UDSResponse {
+	return func(req uds.UDSRequest, resp *uds.UDSResponse) {
 		switch req.Action {
 		case uds.GET:
 			if _, ok := s.getHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BadRequest}
+				uds.Error(resp, "No handler registered for resource", uds.BadRequest)
+				break
 			}
-			return s.getHandlers[req.Resource](req)
+			s.getHandlers[req.Resource](req, resp)
 		case uds.PUT:
 			if _, ok := s.putHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BadRequest}
+				uds.Error(resp, "No handler registered for resource", uds.BadRequest)
+				break
 			}
-			return s.putHandlers[req.Resource](req)
+			s.putHandlers[req.Resource](req, resp)
 		case uds.POST:
 			if _, ok := s.postHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BadRequest}
+				uds.Error(resp, "No handler registered for resource", uds.BadRequest)
+				break
 			}
-			return s.postHandlers[req.Resource](req)
+			s.postHandlers[req.Resource](req, resp)
 		case uds.DELETE:
 			if _, ok := s.deleteHandlers[req.Resource]; !ok {
-				return uds.UDSResponse{Status: uds.BadRequest}
+				uds.Error(resp, "No handler registered for resource", uds.BadRequest)
+				break
 			}
-			return s.deleteHandlers[req.Resource](req)
+			s.deleteHandlers[req.Resource](req, resp)
 		default:
-			return uds.UDSResponse{Status: uds.BadRequest}
+			uds.Error(resp, "No handler registered for resource", uds.BadRequest)
 		}
 	}
 }
