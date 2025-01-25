@@ -22,6 +22,7 @@ const (
 	BadRequest
 	NotFound
 	Internal
+	Duplicate
 )
 
 const (

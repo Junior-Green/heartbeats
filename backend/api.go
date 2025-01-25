@@ -25,13 +25,13 @@ func handleGetAllServers(db *database.SqliteDatabase) uds.UDSHandler {
 	return func(req uds.UDSRequest, res *uds.UDSResponse) {
 		servers, err := db.GetAllServers()
 		if err != nil {
-			uds.Error(res, "Error getting all servers", uds.Internal)
+			handleError(res, err)
 			return
 		}
 
 		bytes, err := json.Marshal(servers)
 		if err != nil {
-			uds.Error(res, "Error marshalling server array", uds.Internal)
+			handleError(res, err)
 			return
 		}
 		uds.Ok(res, bytes)
@@ -50,7 +50,7 @@ func handleGetAllServers(db *database.SqliteDatabase) uds.UDSHandler {
 //  3. Queries the database for metrics using the host data from the unmarshalled payload. If the query fails, it sets the response status to BadRequest.
 //  4. Marshals the retrieved metrics into JSON format. If marshalling fails, it sets the response status to BadRequest.
 //  5. Sets the marshalled JSON as the response payload.
-func handleGetMetrics(db *database.SqliteDatabase) uds.UDSHandler {
+func handleGetMetricsByHost(db *database.SqliteDatabase) uds.UDSHandler {
 	return func(req uds.UDSRequest, res *uds.UDSResponse) {
 		type body struct {
 			Host string `json:"host"`
@@ -58,19 +58,19 @@ func handleGetMetrics(db *database.SqliteDatabase) uds.UDSHandler {
 
 		var b body
 		if err := json.Unmarshal(req.Payload, &b); err != nil {
-			uds.Error(res, "Error unmarshalling JSON payload", uds.Internal)
+			handleError(res, err)
 			return
 		}
 
 		metrics, err := db.GetMetricsByHost(b.Host)
 		if err != nil {
-			uds.Error(res, "Error getting metrics", uds.Internal)
+			handleError(res, err)
 			return
 		}
 
 		bytes, err := json.Marshal(metrics)
 		if err != nil {
-			uds.Error(res, "Error marshalling metrics array", uds.Internal)
+			handleError(res, err)
 			return
 		}
 
@@ -98,19 +98,19 @@ func handleGetServerByHost(db *database.SqliteDatabase) uds.UDSHandler {
 
 		var b body
 		if err := json.Unmarshal(req.Payload, &b); err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
 		server, err := db.GetServerByHost(b.Host)
 		if err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
 		bytes, err := json.Marshal(server)
 		if err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
@@ -131,14 +131,14 @@ func handleCreateServer(db *database.SqliteDatabase) uds.UDSHandler {
 			Data server.Server `json:"data"`
 		}
 
-		var s server.Server
+		var s body
 		if err := json.Unmarshal(req.Payload, &s); err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
-		if err := db.AddServer(s); err != nil {
-			res.Status = uds.BadRequest
+		if err := db.AddServer(s.Data); err != nil {
+			handleError(res, err)
 			return
 		}
 
@@ -166,12 +166,12 @@ func handleDeleteServerByHost(db *database.SqliteDatabase) uds.UDSHandler {
 
 		var b body
 		if err := json.Unmarshal(req.Payload, &b); err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
 		if err := db.DeleteServerByHost(b.Host); err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
@@ -199,15 +199,32 @@ func handleUpdateFavorite(db *database.SqliteDatabase) uds.UDSHandler {
 
 		var b body
 		if err := json.Unmarshal(req.Payload, &b); err != nil {
-			res.Status = uds.BadRequest
+			handleError(res, err)
 			return
 		}
 
 		if err := db.UpdateFavoriteByHost(b.Host, b.Favorite); err != nil {
-			res.Status = uds.Internal
+			handleError(res, err)
 			return
 		}
 
 		res.Status = uds.Success
+	}
+}
+
+func handleError(resp *uds.UDSResponse, err error) {
+	switch err.(type) {
+	case database.ErrCheckConstraint:
+		uds.Error(resp, err.Error(), uds.BadRequest)
+	case database.ErrDuplicateRow:
+		uds.Error(resp, err.Error(), uds.Duplicate)
+	case database.ErrForeignConstraint:
+		uds.Error(resp, err.Error(), uds.BadRequest)
+	case database.ErrNotFound:
+		uds.Error(resp, err.Error(), uds.NotFound)
+	case database.ErrUniqueConstraint:
+		uds.Error(resp, err.Error(), uds.BadRequest)
+	default:
+		uds.Error(resp, "Something went wrong", uds.Internal)
 	}
 }

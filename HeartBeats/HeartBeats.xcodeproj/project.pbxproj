@@ -23,6 +23,18 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		C0BBE5E62D459470008D8143 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 12;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		C045C3812D2C86A600069E5F /* HeartBeats.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HeartBeats.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C045C3922D2C86A900069E5F /* HeartBeatsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeartBeatsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -103,6 +115,8 @@
 				C045C37D2D2C86A600069E5F /* Sources */,
 				C045C37E2D2C86A600069E5F /* Frameworks */,
 				C045C37F2D2C86A600069E5F /* Resources */,
+				C0BBE5E52D458FE8008D8143 /* ShellScript */,
+				C0BBE5E62D459470008D8143 /* CopyFiles */,
 			);
 			buildRules = (
 			);
@@ -231,6 +245,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C0BBE5E52D458FE8008D8143 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 12;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n#!/bin/bash\n\nGO_PROJECT_DIR=\"/Users/juniorgreen/Documents/HeartBeats/backend\"\nOUTPUT_DIR=\"${PROJECT_DIR}/bin\"\n\n# Ensure the output directory exists\nmkdir -p \"$OUTPUT_DIR\"\n\n# Compile for Intel (amd64)\nGOOS=darwin GOARCH=amd64 go build -o \"$OUTPUT_DIR/darwin_amd64\" \"$GO_PROJECT_DIR/main.go\"\n\n# Compile for Apple Silicon (arm64)\nGOOS=darwin GOARCH=arm64 go build -o \"$OUTPUT_DIR/darwin_arm64\" \"$GO_PROJECT_DIR/main.go\"\n\n# Create universal binary\nlipo -create -output \"$OUTPUT_DIR/universal\" \\\n    \"$OUTPUT_DIR/darwin_amd64\" \"$OUTPUT_DIR/darwin_arm64\"\n\necho \"Universal binary created at $OUTPUT_DIR/universal\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C045C37D2D2C86A600069E5F /* Sources */ = {
