@@ -22,6 +22,19 @@ func (s *UDSServer) AddDeleteHandler(resource string, handler uds.UDSHandler) {
 	s.deleteHandlers[resource] = handler
 }
 
+// UDSRequestHandler returns a UDSHandler function that processes UDS requests.
+// It routes the request to the appropriate handler based on the request action (GET, PUT, POST, DELETE).
+// If no handler is registered for the requested resource, it responds with a BadRequest error.
+//
+// The returned UDSHandler function performs the following actions:
+// 	- For GET requests, it invokes the handler registered in s.getHandlers for the requested resource.
+// 	- For PUT requests, it invokes the handler registered in s.putHandlers for the requested resource.
+// 	- For POST requests, it invokes the handler registered in s.postHandlers for the requested resource.
+// 	- For DELETE requests, it invokes the handler registered in s.deleteHandlers for the requested resource.
+// 	- If the action is not recognized or no handler is registered for the requested resource, it responds with a BadRequest error.
+//
+// Returns:
+//   A UDSHandler function that processes UDS requests.
 func (s *UDSServer) UDSRequestHandler() uds.UDSHandler {
 	return func(req uds.UDSRequest, resp *uds.UDSResponse) {
 		switch req.Action {

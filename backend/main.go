@@ -2,30 +2,42 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/Junior-Green/heartbeats/database"
 	"github.com/Junior-Green/heartbeats/logger"
+	"github.com/Junior-Green/heartbeats/server"
+	"github.com/Junior-Green/heartbeats/server/ping"
 	"github.com/Junior-Green/heartbeats/uds"
 	"github.com/Junior-Green/heartbeats/uds/udsserver"
 )
 
-const socketPath = "/var/run/heartbeats.socket"
-const dsn = "/Library/Application Support/HeartBeats/heartbeats.db?cache=shared&mode=memory"
+const socketEnvKey = "SOCKET_PATH"
+const dbEnvKey = "DB_PATH"
+const pingInterval = time.Second * 30
+
+// const dsnParams = "/Library/Application Support/HeartBeats/heartbeats.db?cache=shared&mode=memory"
 
 func main() {
-	//Creates app folder if it doesn't exist
-	if _, err := os.Stat(dsn); os.IsNotExist(err) {
-		logger.Printf("Error finding database file: %v", err)
+
+	socketPath, ok := os.LookupEnv(socketEnvKey)
+	if !ok {
+		logger.Printf("Could not find socket path environment variable: %v", socketEnvKey)
 		os.Exit(1)
 	}
 
-	if _, err := os.Stat("/var/run"); os.IsNotExist(err) {
-		logger.Print("Cannot find /var/run")
+	dbPath, ok := os.LookupEnv(dbEnvKey)
+	if !ok {
+		logger.Printf("Could not find database path environment variable: %v", dbEnvKey)
 		os.Exit(1)
 	}
 
-	db, err := database.NewDatabase(dsn)
+	var dsnParams url.Values = map[string][]string{"cache": {"shared"}, "mode": {"memory"}}
+
+	db, err := database.NewDatabase(strings.Join([]string{dbPath, "?", dsnParams.Encode()}, ""))
 	if err != nil {
 		logger.Printf("Error initializing connection to database: %v", err)
 		os.Exit(1)
@@ -52,6 +64,32 @@ func main() {
 		fmt.Printf("Error creating socket connection: %v", err)
 	}
 
+	if err = createPingWorkers(db); err != nil {
+		logger.Printf("Error creating ping workers: %v", err)
+		os.Exit(1)
+	}
+
 	logger.Printf("Listener listening on socket from %s", socketPath)
 	conn.Listen()
+}
+
+func createPingWorkers(db *database.SqliteDatabase) error {
+	servers, err := db.GetAllServers()
+	if err != nil {
+		return err
+	}
+
+	for _, serv := range servers {
+		go func(serv server.Server) {
+			ch := ping.PingAfter(serv.Host, pingInterval)
+
+			for data := range ch {
+				db.UpdateOnlineStatusByHost(serv.Host, data.Throughput.Valid)
+				db.AddPingMetricByHost(serv.Host, data)
+			}
+
+		}(serv)
+	}
+
+	return nil
 }
