@@ -16,15 +16,30 @@ struct NSAlertItem: Identifiable {
 }
 
 enum NSAlertContext {
-  static let appSupport = NSAlertItem(alert: .critical,
-                                      title: "File Path Error",
-                                      message: "Do not have read/write access to /Library/Application Support. Invalid permissions or does not exists.",
-                                      buttonLabel: "Exit")
+  static let agentProcess = NSAlertItem(
+    alert: .critical,
+    title: "Error starting internal process",
+    message: "Something went wrong when trying to start an agent process.",
+    buttonLabel: "Exit")
 
-  static let databaseFile = NSAlertItem(alert: .critical,
-                                        title: "File Path Error",
-                                        message: "Error occured while creating database resources. Invalid file permissions.",
-                                        buttonLabel: "Exit")
+  static let clientSocket = NSAlertItem(
+    alert: .critical,
+    title: "Cannot instantiate socket connection",
+    message: "Something went wrong when initialising socket connection.",
+    buttonLabel: "Exit")
+
+  case createFile(filePath: URL)
+
+  var alertItem: NSAlertItem {
+    switch self {
+    case .createFile(let filePath):
+      return NSAlertItem(
+        alert: .critical,
+        title: "Cannot create file",
+        message: "Cannot create file at \(filePath.path()). Please check write permissions or try running as adminstrator.",
+        buttonLabel: "Exit")
+    }
+  }
 }
 
 func showNSAlert(item: NSAlertItem) {

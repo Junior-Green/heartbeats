@@ -13,8 +13,9 @@ enum Env: String {
 }
 
 enum Files {
-  static let socketFile: NSString = NSString(string: "heartbeats.socket")
-  static let databaseFile: NSString = NSString(string: "heartbeats.db")
+  static let uds: NSString = NSString(string: "heartbeats.socket")
+  static let database: NSString = NSString(string: "heartbeats.db")
+  static let goExecutable: NSString = NSString(string: "universal")
 }
 
 enum AppInfo {
