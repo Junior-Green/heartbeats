@@ -11,7 +11,7 @@ struct UDSRequest: Codable, Identifiable {
   let id: UUID = UUID()
   let action: Action
   let resource: String
-  let payload: Data
+  let payload: Data?
 
   enum CodingKeys: String, CodingKey {
     case id

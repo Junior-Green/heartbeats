@@ -10,7 +10,7 @@ import Foundation
 struct UDSResponse: Codable, Identifiable, Hashable {
   let id: UUID
   let status: StatusCode
-  let payload: Data
+  let payload: Data?
 
   enum CodingKeys: String, CodingKey {
     case id
