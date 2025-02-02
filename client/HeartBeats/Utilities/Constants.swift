@@ -13,9 +13,37 @@ enum Env: String {
 }
 
 enum Files {
-  static let uds: NSString = NSString(string: "heartbeats.socket")
-  static let database: NSString = NSString(string: "heartbeats.db")
-  static let goExecutable: NSString = NSString(string: "universal")
+  static let uds: String = "heartbeats.socket"
+  static let database: String = "heartbeats.db"
+  static let goExecutable: String = "com.heartbeats.universal"
+  static let goLog: String = "heartbeats.log"
+  static let tempDir: String = FileManager.default.temporaryDirectory.appending(path: AppInfo.name).path()
+
+  static var appSuppDir: String? {
+    do {
+      return try URL(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        .appending(path: AppInfo.name)
+        .path()
+    } catch {
+      showNSAlert(err: error)
+      return nil
+    }
+  }
+}
+
+enum Action: String, Codable {
+  case GET
+  case PUT
+  case POST
+  case DELETE
+}
+
+enum StatusCode: Int, Codable {
+  case Success = 0
+  case BadRequest = 1
+  case NotFound = 2
+  case Internal = 3
+  case Duplicate = 4
 }
 
 enum AppInfo {

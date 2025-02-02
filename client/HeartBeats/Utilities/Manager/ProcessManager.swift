@@ -9,16 +9,22 @@ import AppKit
 import Foundation
 
 final class ProcessManager {
-  static let udsserver = ProcessManager()
+  static let shared = ProcessManager()
 
   private let process: Process
 
   private init() {
     process = Process()
     process.executableURL = Bundle.main.url(forResource: Files.goExecutable as String, withExtension: nil)
-    process.environment = ["SOCKET_PATH": URL.socketFile.path()]
+    process.environment = [
+      "SOCKET_PATH": URL.socketFile.path(),
+      "DB_PATH": URL.databaseFile.path(),
+      "MODE": BuildMode.env.rawValue,
+      "LOG_PATH": URL.goLogFile.path()
+    ]
 
     do {
+      debugPrint("starting backend process agent")
       try process.run()
     } catch {
       Logger.shared.logError(error)
@@ -28,6 +34,7 @@ final class ProcessManager {
   }
 
   deinit {
+    debugPrint("terminated backend process agent")
     process.terminate()
   }
 }

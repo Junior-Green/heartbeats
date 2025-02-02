@@ -17,6 +17,7 @@ import (
 
 const socketEnvKey = "SOCKET_PATH"
 const dbEnvKey = "DB_PATH"
+const logEnvKey = "LOG_PATH"
 const pingInterval = time.Second * 30
 
 // const dsnParams = "/Library/Application Support/HeartBeats/heartbeats.db?cache=shared&mode=memory"
@@ -33,6 +34,15 @@ func main() {
 	if !ok {
 		logger.Printf("Could not find database path environment variable: %v", dbEnvKey)
 		os.Exit(1)
+	}
+
+	logPath, ok := os.LookupEnv(logEnvKey)
+	if ok {
+		if f, err := os.Open(logPath); err == nil {
+			logger.SetOuput(f)
+		} else {
+			logger.Debug("Error opening log file. Logs will be written to stdout")
+		}
 	}
 
 	var dsnParams url.Values = map[string][]string{"cache": {"shared"}, "mode": {"memory"}}

@@ -41,6 +41,7 @@ const (
 // - Resource: The resource being targeted by the action.
 // - Payload: Additional data required for the action, represented as a byte slice.
 type UDSRequest struct {
+	Id       string `json:"id"`
 	Action   action `json:"action"`
 	Resource string `json:"resource"`
 	Payload  []byte `json:"payload"`
@@ -53,8 +54,9 @@ type UDSRequest struct {
 // - Status: The status of the response, represented by the `status` type.
 // - Payload: The payload data of the response, represented as a byte slice and serialized as "data" in JSON.
 type UDSResponse struct {
+	Id      string `json:"id"`
 	Status  status `json:"status"`
-	Payload []byte `json:"data"`
+	Payload []byte `json:"payload"`
 }
 
 // socketConn represents a Unix Domain Socket (UDS) connection.
@@ -111,7 +113,7 @@ func (s *socketConn) handleRequest(c net.Conn) {
 		return
 	}
 
-	resp := &UDSResponse{Status: Success}
+	resp := &UDSResponse{Id: req.Id, Status: Success}
 	s.handler(req, resp)
 
 	bytes, err := json.Marshal(resp)
@@ -181,14 +183,16 @@ func Ok(resp *UDSResponse, payload []byte) *UDSResponse {
 }
 
 // Error sets the status code and error message in the UDSResponse.
-// 
+//
 // Parameters:
-//   resp - The UDSResponse to be modified.
-//   error - The error message to be set in the response payload.
-//   statusCode - The status code to be set in the response.
+//
+//	resp - The UDSResponse to be modified.
+//	error - The error message to be set in the response payload.
+//	statusCode - The status code to be set in the response.
 //
 // Returns:
-//   The modified UDSResponse with the specified status code and error message.
+//
+//	The modified UDSResponse with the specified status code and error message.
 func Error(resp *UDSResponse, error string, statusCode status) *UDSResponse {
 	resp.Status = statusCode
 	resp.Payload = []byte(error)

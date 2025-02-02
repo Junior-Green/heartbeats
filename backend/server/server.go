@@ -19,7 +19,7 @@ type Metrics struct {
 
 type Server struct {
 	Id       string `json:"id"`
-	Host     string `json:"hostname"`
+	Host     string `json:"host"`
 	Online   bool   `json:"online"`
 	Favorite bool   `json:"favorite"`
 }

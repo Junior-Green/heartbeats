@@ -8,9 +8,13 @@
 import AppKit
 
 extension URL {
-  static let databaseFile = URL.applicationSupportDirectory.appending(path: Files.database as String, directoryHint: .notDirectory)
+  static let databaseFile = URL(fileURLWithPath: "\(Files.appSuppDir!)/\(Files.database)", isDirectory: false)
 }
 
 extension URL {
-  static let socketFile = URL.temporaryDirectory.appending(path: Files.uds as String, directoryHint: .notDirectory)
+  static let socketFile = URL(fileURLWithPath: "\(Files.tempDir)/\(Files.uds)", isDirectory: false)
+}
+
+extension URL {
+  static let goLogFile = URL(fileURLWithPath: "\(Files.tempDir)/\(Files.goLog)", isDirectory: false)
 }
