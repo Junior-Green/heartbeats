@@ -29,7 +29,10 @@ final class ProcessManager {
     } catch {
       Logger.shared.logError(error)
       showNSAlert(err: error)
-      NSApplication.shared.terminate(nil)
+
+      DispatchQueue.main.async {
+        NSApplication.shared.terminate(nil)
+      }
     }
   }
 

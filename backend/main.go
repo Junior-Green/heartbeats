@@ -53,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := udsserver.UDSServer{}
+	server := udsserver.NewUDSServer()
 	//GETS
 	server.AddGetHandler("/", handlePing())
 	server.AddGetHandler("/server/all", handleGetAllServers(db))

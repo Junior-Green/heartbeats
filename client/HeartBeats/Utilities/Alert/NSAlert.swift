@@ -43,16 +43,20 @@ enum NSAlertContext {
 }
 
 func showNSAlert(item: NSAlertItem) {
-  let alert = NSAlert()
-  alert.messageText = item.title
-  alert.addButton(withTitle: item.buttonLabel)
-  alert.informativeText = item.message
-  alert.alertStyle = item.alert
+  DispatchQueue.main.async {
+    let alert = NSAlert()
+    alert.messageText = item.title
+    alert.addButton(withTitle: item.buttonLabel)
+    alert.informativeText = item.message
+    alert.alertStyle = item.alert
 
-  alert.runModal()
+    alert.runModal()
+  }
 }
 
 func showNSAlert(err: Error) {
-  let alert = NSAlert(error: err)
-  alert.runModal()
+  DispatchQueue.main.async {
+    let alert = NSAlert(error: err)
+    alert.runModal()
+  }
 }
