@@ -1,0 +1,7 @@
+.DS_Store
+Screenshot 2025-01-11 at 3.20.02 PM.png
+bin/
+*.sh
+*
+!*.*
+!*/
