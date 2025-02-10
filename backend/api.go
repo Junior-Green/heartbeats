@@ -57,7 +57,7 @@ func handleGetMetricsByHost(db *database.SqliteDatabase) uds.UDSHandler {
 		}
 
 		var b body
-		if err := json.Unmarshal(req.Payload, &b); err != nil {
+		if err := json.Unmarshal(req.Payload.Data, &b); err != nil {
 			handleError(res, err)
 			return
 		}
@@ -97,7 +97,7 @@ func handleGetServerByHost(db *database.SqliteDatabase) uds.UDSHandler {
 		}
 
 		var b body
-		if err := json.Unmarshal(req.Payload, &b); err != nil {
+		if err := json.Unmarshal(req.Payload.Data, &b); err != nil {
 			handleError(res, err)
 			return
 		}
@@ -132,7 +132,7 @@ func handleCreateServer(db *database.SqliteDatabase) uds.UDSHandler {
 		}
 
 		var s body
-		if err := json.Unmarshal(req.Payload, &s); err != nil {
+		if err := json.Unmarshal(req.Payload.Data, &s); err != nil {
 			handleError(res, err)
 			return
 		}
@@ -165,7 +165,7 @@ func handleDeleteServerByHost(db *database.SqliteDatabase) uds.UDSHandler {
 		}
 
 		var b body
-		if err := json.Unmarshal(req.Payload, &b); err != nil {
+		if err := json.Unmarshal(req.Payload.Data, &b); err != nil {
 			handleError(res, err)
 			return
 		}
@@ -198,7 +198,7 @@ func handleUpdateFavorite(db *database.SqliteDatabase) uds.UDSHandler {
 		}
 
 		var b body
-		if err := json.Unmarshal(req.Payload, &b); err != nil {
+		if err := json.Unmarshal(req.Payload.Data, &b); err != nil {
 			handleError(res, err)
 			return
 		}

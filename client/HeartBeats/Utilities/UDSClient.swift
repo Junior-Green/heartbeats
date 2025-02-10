@@ -2,98 +2,46 @@ import Foundation
 
 class UDSClient {
   private var socket: Int32?
-  private var clientSocket: Int32?
   private let logger = Logger.shared
   private let socketPath: String
-  private let delegate: UDSClientDelegate
-
-  /// Initializes the Server with an app group identifier and a socket name.
+  private weak var delegate: UDSClientDelegate?
+  
+  private static let retries: Int = 5
+  
+  /// Initializes the Client with an app group identifier and a socket name.
   /// - Parameters:
+  ///   - appGroup: The application group identifier.
   ///   - socketName: The name of the socket.
   init(socketPath: String, delegate: UDSClientDelegate) {
     self.socketPath = socketPath
     self.delegate = delegate
   }
-
-  /// Starts the server and begins listening for connections.
-  func startBroadcasting() {
-    createSocket()
-    bindSocket()
-    listenOnSocket()
-    waitForConnection()
-  }
-
-  /// Creates a socket for communication.
-  private func createSocket() {
-    socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-    guard socket != nil, socket != -1 else {
-      logger.log("Error creating socket")
+  
+  /// Attempts to connect to the Unix socket.
+  func start() {
+    logger.log("Attempting to initialize connection to socket path: \(socketPath)")
+    
+    guard let socket = createSocket() else {
+      delegate?.didFailToAcceptSocketConnection(err: NetworkError.socketSetup("Could not create socket"))
       return
     }
-    logger.log("Socket created successfully")
-  }
-
-  /// Binds the created socket to a specific address.
-  private func bindSocket() {
-    guard let socket = socket else { return }
-
-    var address = sockaddr_un()
-    address.sun_family = sa_family_t(AF_UNIX)
-    socketPath.withCString { ptr in
-      withUnsafeMutablePointer(to: &address.sun_path.0) { dest in
-        _ = strcpy(dest, ptr)
-      }
-    }
-
-    unlink(socketPath) // Remove any existing socket file
-
-    if Darwin.bind(socket, withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { $0 } }, socklen_t(MemoryLayout<sockaddr_un>.size)) == -1 {
-      logger.log("Error binding socket - \(String(cString: strerror(errno)))")
+    self.socket = socket
+    
+    do {
+      try acceptConnection(descriptor: self.socket!, path: socketPath)
+    } catch {
+      delegate?.didFailToAcceptSocketConnection(err: NetworkError.socketSetup(error.localizedDescription))
       return
     }
-    logger.log("Binding to socket path: \(socketPath)")
-  }
-
-  /// Listens for connections on the bound socket.
-  private func listenOnSocket() {
-    guard let socket = socket else { return }
-
-    if Darwin.listen(socket, 1) == -1 {
-      logger.log("Error listening on socket - \(String(cString: strerror(errno)))")
-      return
-    }
-    logger.log("Listening for connections...")
-  }
-
-  /// Waits for a connection and accepts it when available.
-  private func waitForConnection() {
-    DispatchQueue.global().async { [weak self] in
-      self?.acceptConnection()
+    
+    Task { [self] in
+      try await Task.sleep(for: .seconds(3))
+      self.readData()
     }
   }
-
-  /// Accepts a connection request from a client.
-  private func acceptConnection() {
-    guard let socket = socket else { return }
-
-    var clientAddress = sockaddr_un()
-    var clientAddressLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-    clientSocket = Darwin.accept(socket, withUnsafeMutablePointer(to: &clientAddress) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { $0 } }, &clientAddressLen)
-
-    if clientSocket == -1 {
-      logger.log("Error accepting connection - \(String(cString: strerror(errno)))")
-      delegate.didFailToAcceptSocketConnection()
-      return
-    }
-    logger.log("Connection accepted!")
-    delegate.didAcceptSocketConnection()
-    readData()
-  }
-
-  /// Sends the provided data to the connected client.
-  /// - Parameter data: The data to send.
+  
   func sendData(_ data: Data) {
-    guard let clientSocket = clientSocket else {
+    guard let socket = socket else {
       logger.log("No connected client.")
       return
     }
@@ -105,56 +53,81 @@ class UDSClient {
 
     data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
       let pointer = bytes.bindMemory(to: UInt8.self)
-      let bytesWritten = Darwin.send(clientSocket, pointer.baseAddress!, data.count, 0)
+      let bytesWritten = Darwin.send(socket, pointer.baseAddress!, data.count, 0)
 
       if bytesWritten == -1 {
-        logger.log("Error sending data")
+        self.logger.log("Error sending data")
         return
       }
-      logger.log("\(bytesWritten) bytes written")
+      self.logger.log("\(bytesWritten) bytes written")
     }
   }
-
+  
+  /// Reads data from the connected socket.
   func readData() {
-    DispatchQueue.global().async(execute: .init(block: {
+    Task.detached { [weak self] in
       while true {
         var buffer = [UInt8](repeating: 0, count: 1024)
-        guard let socketDescriptor = self.socket else {
-          self.logger.log("Socket descriptor is nil")
+        guard let socketDescriptor = self?.socket else {
+          self?.logger.log("Socket descriptor is nil")
           return
         }
         let bytesRead = read(socketDescriptor, &buffer, buffer.count)
-        if bytesRead <= 0 {
-          self.logger.log("Error reading from socket or connection closed")
-          self.delegate.didRecieveData(data: nil, err: NetworkError.badRequest)
-          continue // exit loop on error or closure of connection
+        if bytesRead == -1, errno == EWOULDBLOCK {
+          self?.logger.log("socket is set to not block")
+          continue // No data yet, but keep looping
+        } else if bytesRead == 0 {
+          self?.logger.log("socket is non blocking")
+          continue
         }
-
+        
         // Print the data for debugging purposes
         let data = Data(buffer[..<bytesRead])
-        self.logger.log("Received data: \(data)")
-        self.delegate.didRecieveData(data: data, err: nil)
+        self?.delegate?.didRecieveData(data: data, err: nil)
       }
-
-      if let socket = self.socket {
+      
+      if let socket = self?.socket {
         close(socket)
+        self?.delegate?.didSocketConnetionClose()
+        self?.socket = nil
       }
     }
-    ))
   }
-
-  /// Stops the server and closes any open connections.
-  func stopBroadcasting() {
-    if let clientSocket = clientSocket {
-      logger.log("Closing client socket...")
-      close(clientSocket)
+  
+  private func createSocket() -> Int32? {
+    let socket = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+    guard socket != -1 else {
+      return nil
     }
-    if let socket = socket {
-      logger.log("Closing server socket...")
-      close(socket)
-      self.socket = nil
+    
+    var flags = fcntl(socket, F_GETFL, 0)
+    flags &= ~O_NONBLOCK
+    if fcntl(socket, F_SETFL, flags) != 0 {
+      return nil
     }
-    unlink(socketPath)
-    logger.log("Broadcasting stopped.")
+    
+    return socket
+  }
+  
+  private func acceptConnection(descriptor: Int32, path: String) throws {
+    var address = sockaddr_un()
+    address.sun_family = sa_family_t(AF_UNIX)
+    path.withCString { ptr in
+      withUnsafeMutablePointer(to: &address.sun_path.0) { dest in
+        _ = strcpy(dest, ptr)
+      }
+    }
+    
+    var attempts = 0
+    
+    while attempts < UDSClient.retries {
+      if Darwin.connect(descriptor, withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { $0 } }, socklen_t(MemoryLayout<sockaddr_un>.size)) == -1 {
+        sleep(UInt32(pow(2.0, Double(attempts))))
+        attempts += 1
+        continue
+      }
+      return
+    }
+    throw NetworkError.socketSetup("Error connecting to socket - \(String(cString: strerror(errno)))")
   }
 }

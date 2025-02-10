@@ -32,6 +32,10 @@ const (
 	DELETE action = "DELETE"
 )
 
+type Payload struct {
+	Data []byte `json:"data"`
+}
+
 // UDSRequest represents a request in the UDS (Unix Domain Socket) communication.
 // It contains the action to be performed, the resource being targeted, and any
 // additional payload data required for the action.
@@ -41,10 +45,10 @@ const (
 // - Resource: The resource being targeted by the action.
 // - Payload: Additional data required for the action, represented as a byte slice.
 type UDSRequest struct {
-	Id       string `json:"id"`
-	Action   action `json:"action"`
-	Resource string `json:"resource"`
-	Payload  []byte `json:"payload"`
+	Id       string  `json:"id"`
+	Action   action  `json:"action"`
+	Resource string  `json:"resource"`
+	Payload  Payload `json:"payload"`
 }
 
 // UDSResponse represents the response structure for UDS (Unix Domain Socket) communication.
@@ -81,7 +85,7 @@ func (s *socketConn) Listen() {
 			logger.Print("Error accepting connection:", err)
 			continue
 		}
-
+		logger.Print("Client connection accepted")
 		go s.handleRequest(conn)
 	}
 }

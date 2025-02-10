@@ -13,18 +13,15 @@ final class NetworkManager {
     
   private init() {
     self.client = UDSClient(socketPath: URL.socketFile.path(), delegate: udsDelegate)
-  }
-    
-  deinit {
-    client.stopBroadcasting()
+    client.start()
   }
     
   private func sendRequest(_ request: UDSRequest) -> Future<UDSResponse, Error> {
     return Future<UDSResponse, Error> { promise in
       do {
         let requestData = try JSONEncoder().encode(request)
-        self.client.sendData(requestData)
         self.udsDelegate.queueRequest(requestId: request.id, promise: promise)
+        self.client.sendData(requestData)
       } catch {
         promise(.failure(error))
       }
@@ -56,9 +53,9 @@ final class NetworkManager {
   }
     
   func getServer(host: String) async throws -> Server {
-    let payload = Payload(host: host)
-    let data = try JSONEncoder().encode(payload)
-    let req = UDSRequest(action: .GET, resource: "/server/host", payload: data)
+    let data = try JSONEncoder().encode(host)
+    
+    let req = UDSRequest(action: .GET, resource: "/server/host", payload: Payload(data))
     let resp = try await sendRequest(req).value
     try handleResponseStatus(resp.status)
     guard let payload = resp.payload else { throw NetworkError.badRequest }
@@ -66,19 +63,18 @@ final class NetworkManager {
   }
     
   func updateServerFavorite(host: String, favorite: Bool) async throws -> Bool {
-    let payload = Payload(host: host, favorite: favorite)
-    let data = try JSONEncoder().encode(payload)
-    let req = UDSRequest(action: .PUT, resource: "/server/favorite", payload: data)
+    let data = try JSONEncoder().encode(ServerFavorite(host: host, favorite: favorite))
+    
+    let req = UDSRequest(action: .PUT, resource: "/server/favorite", payload: Payload(data))
     let resp = try await sendRequest(req).value
     try handleResponseStatus(resp.status)
     return true
   }
     
   func addServer(host: String) async throws -> Bool {
-    let server = Server(host: host)
-    let payload = Payload(data: server)
-    let data = try JSONEncoder().encode(payload)
-    let req = UDSRequest(action: .POST, resource: "/server", payload: data)
+    let data = try JSONEncoder().encode(Server(host: host))
+    
+    let req = UDSRequest(action: .POST, resource: "/server", payload: Payload(data))
     let resp = try await sendRequest(req).value
     try handleResponseStatus(resp.status)
     return true
@@ -91,14 +87,12 @@ final class NetworkManager {
 
 // MARK: - Helper Structs
 
-struct Payload: Codable {
-  let host: String?
-  let favorite: Bool?
-  let data: Server?
-    
-  init(host: String? = nil, favorite: Bool? = nil, data: Server? = nil) {
-    self.host = host
-    self.favorite = favorite
-    self.data = data
+struct ServerFavorite: Codable {
+  let host: String
+  let favorite: Bool
+  
+  enum CodingKeys: String, CodingKey {
+    case host
+    case favorite
   }
 }

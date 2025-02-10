@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,16 +20,14 @@ import (
 //
 //	v ...any: A variadic number of arguments to be logged.
 func Print(v ...any) {
-	log.Print("GO -")
-	log.Println(v...)
+	log.Println("GO: ", fmt.Sprintln(v...))
 }
 
 // Printf formats according to a format specifier and writes to the log.
 // It accepts a format string and a variadic number of arguments.
 // The format string follows the same rules as fmt.Printf.
 func Printf(format string, v ...any) {
-	log.Print("GO -")
-	log.Printf(format, v...)
+	log.Printf("GO: "+format, v...)
 }
 
 // Debug logs the provided arguments if the application is in debug mode.
@@ -42,7 +41,7 @@ func Printf(format string, v ...any) {
 // The function will only log the message if the isDebugMode function returns true.
 func Debug(v ...any) {
 	if isDebugMode() {
-		log.Println(v...)
+		Print(v...)
 	}
 }
 
@@ -54,7 +53,7 @@ func Debug(v ...any) {
 //   - v: A variadic list of arguments to be formatted according to the format string.
 func Debugf(format string, v ...any) {
 	if isDebugMode() {
-		log.Printf(format, v...)
+		Printf(format, v...)
 	}
 }
 

@@ -20,7 +20,6 @@ final class ProcessManager {
       "SOCKET_PATH": URL.socketFile.path(),
       "DB_PATH": URL.databaseFile.path(),
       "MODE": BuildMode.env.rawValue,
-      "LOG_PATH": URL.goLogFile.path()
     ]
 
     do {

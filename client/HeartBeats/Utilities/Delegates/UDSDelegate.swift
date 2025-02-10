@@ -6,12 +6,13 @@ import Network
 protocol UDSClientDelegate: AnyObject {
   func didAcceptSocketConnection()
   func didRecieveData(data: Data?, err: NetworkError?)
-  func didFailToAcceptSocketConnection()
+  func didFailToAcceptSocketConnection(err: NetworkError)
   func didSocketConnetionClose()
 }
 
 class UDSDelegate: UDSClientDelegate {
   private let logger: Logger
+  private static let timeout: TimeInterval = 3
   private var responseQueue: [UUID: Future<UDSResponse, Error>.Promise] = [:]
     
   init(logger: Logger = Logger.shared) {
@@ -22,7 +23,7 @@ class UDSDelegate: UDSClientDelegate {
     logger.log("Socket connection closed")
   }
     
-  func didFailToAcceptSocketConnection() {
+  func didFailToAcceptSocketConnection(err: NetworkError) {
     DispatchQueue.main.async {
       showNSAlert(item: NSAlertContext.clientSocket)
       NSApplication.shared.terminate(nil)
@@ -35,6 +36,16 @@ class UDSDelegate: UDSClientDelegate {
   
   func queueRequest(requestId: UUID, promise: @escaping Future<UDSResponse, Error>.Promise) {
     responseQueue.updateValue(promise, forKey: requestId)
+    
+    Task {
+      let _ = Timer(timeInterval: UDSDelegate.timeout, repeats: false, block: { [responseQueue] _ in
+        guard let promise = responseQueue[requestId] else {
+          return
+        }
+        
+        promise(.failure(NetworkError.timeout))
+      })
+    }
   }
     
   func didRecieveData(data: Data?, err: NetworkError?) {

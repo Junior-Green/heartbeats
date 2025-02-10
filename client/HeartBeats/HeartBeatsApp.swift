@@ -37,6 +37,7 @@ enum HeartBeatsApp {
 
     // Trigger .init
     _ = ProcessManager.shared
+    sleep(2)
     _ = NetworkManager.shared
   }
 
