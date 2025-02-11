@@ -20,14 +20,14 @@ import (
 //
 //	v ...any: A variadic number of arguments to be logged.
 func Print(v ...any) {
-	log.Println("GO: ", fmt.Sprintln(v...))
+	log.Println("SERVER: ", fmt.Sprintln(v...))
 }
 
 // Printf formats according to a format specifier and writes to the log.
 // It accepts a format string and a variadic number of arguments.
 // The format string follows the same rules as fmt.Printf.
 func Printf(format string, v ...any) {
-	log.Printf("GO: "+format, v...)
+	log.Printf("SERVER: "+format, v...)
 }
 
 // Debug logs the provided arguments if the application is in debug mode.

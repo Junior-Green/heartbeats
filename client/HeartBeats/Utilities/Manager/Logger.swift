@@ -16,8 +16,8 @@ class Logger: ObservableObject {
   func log(_ newEntry: String) {
     let dateFormatter = DateFormatter()
     dateFormatter.dateFormat = "HH:mm:ss.SSS "
-    let msg = "\n" + dateFormatter.string(from: Date()) + newEntry
-    self.log += msg
+    let msg = "CLIENT: " + dateFormatter.string(from: Date()) + newEntry
+    self.log += "\n \(msg)"
     debugPrint(msg)
   }
 

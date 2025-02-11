@@ -33,6 +33,7 @@ class UDSClient {
       delegate?.didFailToAcceptSocketConnection(err: NetworkError.socketSetup(error.localizedDescription))
       return
     }
+    delegate?.didAcceptSocketConnection()
     
     Task { [self] in
       try await Task.sleep(for: .seconds(3))

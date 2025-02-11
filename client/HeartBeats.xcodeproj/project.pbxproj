@@ -30,9 +30,22 @@
 		C0894D1F2D46948D00A78FEA /* build.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build.sh; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C046E3412D5C01DE0099A30F /* Exceptions for "HeartBeats" folder in "HeartBeats" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C045C3802D2C86A600069E5F /* HeartBeats */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C045C3832D2C86A600069E5F /* HeartBeats */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C046E3412D5C01DE0099A30F /* Exceptions for "HeartBeats" folder in "HeartBeats" target */,
+			);
 			path = HeartBeats;
 			sourceTree = "<group>";
 		};
@@ -434,6 +447,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HeartBeats/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = HeartBeats;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -465,6 +479,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HeartBeats/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = HeartBeats;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

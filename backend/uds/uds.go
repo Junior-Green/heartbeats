@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Junior-Green/heartbeats/logger"
 )
 
-const timeout = time.Second * 3
 const retry = 5
+const bufferSize = 1024
 
 type action string
 type status int
@@ -69,7 +71,7 @@ type UDSResponse struct {
 type socketConn struct {
 	socketPath string
 	handler    UDSHandler
-	listener   net.Listener
+	listener   *net.UnixListener
 }
 
 // Listen starts the socket connection listener. It continuously accepts new
@@ -80,7 +82,11 @@ func (s *socketConn) Listen() {
 	defer s.listener.Close()
 
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := s.listener.AcceptUnix()
+		conn.SetReadBuffer(bufferSize)
+		conn.SetWriteBuffer(bufferSize)
+		setBlockingMode(conn, true)
+
 		if err != nil {
 			logger.Print("Error accepting connection:", err)
 			continue
@@ -88,6 +94,58 @@ func (s *socketConn) Listen() {
 		logger.Print("Client connection accepted")
 		go s.handleRequest(conn)
 	}
+}
+
+// setBlockingMode sets the blocking mode of a Unix domain socket connection.
+// If blocking is true, the connection is set to blocking mode. If blocking is false,
+// the connection is set to non-blocking mode.
+//
+// Parameters:
+//   - conn: The Unix domain socket connection to modify.
+//   - blocking: A boolean indicating whether to set the connection to blocking mode.
+//
+// Returns:
+//   - error: An error if the operation fails, otherwise nil.
+func setBlockingMode(conn *net.UnixConn, blocking bool) error {
+	// Get the raw file descriptor
+	rawConn, err := conn.SyscallConn()
+	if err != nil {
+		return fmt.Errorf("failed to get raw connection: %v", err)
+	}
+
+	var controlErr error
+	err = rawConn.Control(func(fd uintptr) {
+		// Get the current flags
+
+		flags, err := unix.FcntlInt(fd, syscall.F_GETFL, 0)
+		if err != nil {
+			controlErr = fmt.Errorf("failed to get flags: %v", err)
+			return
+		}
+
+		// Clear the non-blocking flag
+		if blocking {
+			flags &= ^unix.O_NONBLOCK
+		} else {
+			flags |= unix.O_NONBLOCK
+		}
+
+		// Set the new flags
+		_, err = unix.FcntlInt(fd, syscall.F_SETFL, flags)
+		if err != nil {
+			controlErr = fmt.Errorf("failed to set flags: %v", err)
+			return
+		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to control raw connection: %v", err)
+	}
+	if controlErr != nil {
+		return controlErr
+	}
+
+	return nil
 }
 
 // handleRequest handles incoming requests on the socket connection.
@@ -103,31 +161,40 @@ func (s *socketConn) Listen() {
 //
 //	The connection is closed at the end of the function.
 func (s *socketConn) handleRequest(c net.Conn) {
+	defer s.listener.Close()
 	defer c.Close()
-	c.SetDeadline(time.Now().Add(timeout))
 
-	buf := make([]byte, 0, 1024)
-	if _, err := c.Read(buf); err != nil {
-		logger.Printf("Error reading request: %v", err)
-	}
+	for {
+		buf := make([]byte, 0, bufferSize)
+		numBytes, err := c.Read(buf)
+		if err != nil {
+			logger.Printf("Error reading request: %v", err)
+			continue
+		} else if numBytes == 0 {
+			logger.Printf("Empty buffer received")
+			continue
+		}
 
-	var req UDSRequest
-	if err := json.Unmarshal(buf, &req); err != nil {
-		logger.Printf("Error decoding request: %v", err)
-		return
-	}
+		var req UDSRequest
+		if err := json.Unmarshal(buf, &req); err != nil {
+			logger.Printf("Error decoding request: %v", err)
+			logger.Printf("This is not valid JSON: %s", buf)
+			continue
+		}
 
-	resp := &UDSResponse{Id: req.Id, Status: Success}
-	s.handler(req, resp)
+		resp := &UDSResponse{Id: req.Id, Status: Success}
+		s.handler(req, resp)
 
-	bytes, err := json.Marshal(resp)
-	if err != nil {
-		logger.Printf("Error marshalling response: %v", err)
-		return
-	}
+		bytes, err := json.Marshal(resp)
+		if err != nil {
+			logger.Printf("Error marshalling response: %v", err)
+			continue
+		}
 
-	if _, err := c.Write(bytes); err != nil {
-		logger.Printf("Error writing request: %v", err)
+		if _, err := c.Write(bytes); err != nil {
+			logger.Printf("Error writing request: %v", err)
+			continue
+		}
 	}
 }
 
@@ -154,7 +221,7 @@ func NewSocketConn(socketPath string, handler UDSHandler) (*socketConn, error) {
 
 	for i := 0; i < retry; i++ {
 		// Attempt to start the listener
-		listener, err := net.Listen("unix", socket.socketPath)
+		listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 		if err != nil {
 			fmt.Printf("Error starting listener: %v\nRetrying...\n", err)
 			continue

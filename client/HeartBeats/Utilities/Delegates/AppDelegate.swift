@@ -17,4 +17,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     customWindowController?.showWindow(nil)
   }
+  
+  func applicationWillTerminate(_ notification: Notification) {
+    ProcessManager.shared.terminate()
+  }
 }

@@ -20,10 +20,11 @@ final class ProcessManager {
       "SOCKET_PATH": URL.socketFile.path(),
       "DB_PATH": URL.databaseFile.path(),
       "MODE": BuildMode.env.rawValue,
+      "PID": String(describing: ProcessInfo().processIdentifier)
     ]
 
     do {
-      debugPrint("starting backend process agent")
+      debugPrint("starting backend agent process")
       try process.run()
     } catch {
       Logger.shared.logError(error)
@@ -35,8 +36,12 @@ final class ProcessManager {
     }
   }
 
-  deinit {
-    debugPrint("terminated backend process agent")
+  func terminate() {
+    debugPrint("terminated backend agent process")
     process.terminate()
+  }
+
+  deinit {
+    terminate()
   }
 }

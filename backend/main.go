@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Junior-Green/heartbeats/database"
@@ -23,6 +25,13 @@ const pingInterval = time.Second * 30
 // const dsnParams = "/Library/Application Support/HeartBeats/heartbeats.db?cache=shared&mode=memory"
 
 func main() {
+
+	pid, err := strconv.Atoi(os.Getenv("PID"))
+	if err != nil {
+		logger.Printf("Error getting pid: %v", err)
+		os.Exit(1)
+	}
+	go watchParentProcess(pid)
 
 	socketPath, ok := os.LookupEnv(socketEnvKey)
 	if !ok {
@@ -81,6 +90,20 @@ func main() {
 
 	logger.Printf("Listener listening on socket from %s", socketPath)
 	conn.Listen()
+}
+
+func watchParentProcess(pid int) {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		logger.Print("Parent process does not exist")
+		os.Exit(1)
+	}
+	for {
+		if err = process.Signal(syscall.Signal(0)); err != nil {
+			logger.Print("Parent process terminated. Exiting...")
+			os.Exit(0)
+		}
+	}
 }
 
 func createPingWorkers(db *database.SqliteDatabase) error {
