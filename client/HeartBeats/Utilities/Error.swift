@@ -19,5 +19,6 @@ enum NetworkError: Error {
   case duplicate
   case internalError
   case notFound
+  case unhandledResponse
   case socketSetup(_: String)
 }

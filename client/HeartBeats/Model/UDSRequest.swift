@@ -32,3 +32,10 @@ struct Payload: Codable {
     case data
   }
 }
+
+extension UDSRequest {
+  func toJSON() throws -> Data {
+    let requestData = try JSONEncoder().encode(self)
+    return requestData
+  }
+}

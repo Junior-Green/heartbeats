@@ -43,7 +43,7 @@ class UDSClient {
   
   func sendData(_ data: Data) {
     guard let socket = socket else {
-      logger.log("No connected client.")
+      logger.log("No connected.")
       return
     }
 
@@ -73,7 +73,9 @@ class UDSClient {
           self?.logger.log("Socket descriptor is nil")
           return
         }
-        let bytesRead = read(socketDescriptor, &buffer, buffer.count)
+        
+        let bytesRead = recv(socketDescriptor, &buffer, buffer.count, 0 | MSG_WAITALL)
+        
         if bytesRead == -1, errno == EWOULDBLOCK {
           self?.logger.log("socket is set to not block")
           continue // No data yet, but keep looping

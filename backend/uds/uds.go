@@ -1,15 +1,15 @@
 package uds
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"syscall"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/Junior-Green/heartbeats/logger"
+	"golang.org/x/sys/unix"
 )
 
 const retry = 5
@@ -34,6 +34,9 @@ const (
 	DELETE action = "DELETE"
 )
 
+// Payload represents the structure of the data being transmitted.
+// The Data field contains the actual byte slice of the payload,
+// which is serialized to JSON with the key "data".
 type Payload struct {
 	Data []byte `json:"data"`
 }
@@ -91,7 +94,6 @@ func (s *socketConn) Listen() {
 			logger.Print("Error accepting connection:", err)
 			continue
 		}
-		logger.Print("Client connection accepted")
 		go s.handleRequest(conn)
 	}
 }
@@ -116,7 +118,6 @@ func setBlockingMode(conn *net.UnixConn, blocking bool) error {
 	var controlErr error
 	err = rawConn.Control(func(fd uintptr) {
 		// Get the current flags
-
 		flags, err := unix.FcntlInt(fd, syscall.F_GETFL, 0)
 		if err != nil {
 			controlErr = fmt.Errorf("failed to get flags: %v", err)
@@ -160,39 +161,49 @@ func setBlockingMode(conn *net.UnixConn, blocking bool) error {
 // Note:
 //
 //	The connection is closed at the end of the function.
-func (s *socketConn) handleRequest(c net.Conn) {
+func (s *socketConn) handleRequest(c *net.UnixConn) {
 	defer s.listener.Close()
 	defer c.Close()
 
 	for {
 		buf := make([]byte, 0, bufferSize)
-		numBytes, err := c.Read(buf)
+		numBytes, _, _, _, err := c.ReadMsgUnix(buf, nil)
 		if err != nil {
-			logger.Printf("Error reading request: %v", err)
+			logger.Debugf("Error reading request: %v", err)
 			continue
 		} else if numBytes == 0 {
-			logger.Printf("Empty buffer received")
+			//logger.Debug("Empty buffer received")
 			continue
 		}
 
 		var req UDSRequest
 		if err := json.Unmarshal(buf, &req); err != nil {
-			logger.Printf("Error decoding request: %v", err)
-			logger.Printf("This is not valid JSON: %s", buf)
+			logger.Debugf("Error decoding request: %v", err)
+			logger.Debugf("This is not valid JSON: %s", buf)
 			continue
+		} else {
+			logger.Debugf("Request recieved: %+v", req)
 		}
 
 		resp := &UDSResponse{Id: req.Id, Status: Success}
 		s.handler(req, resp)
 
-		bytes, err := json.Marshal(resp)
+		jsonBytes, err := json.Marshal(resp)
 		if err != nil {
-			logger.Printf("Error marshalling response: %v", err)
+			logger.Debugf("Error marshalling response: %v", err)
 			continue
 		}
 
-		if _, err := c.Write(bytes); err != nil {
-			logger.Printf("Error writing request: %v", err)
+		length := uint32(len(jsonBytes))
+		prefixBytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(prefixBytes, length)
+
+		if _, err := c.Write(prefixBytes); err != nil {
+			logger.Debugf("Error writing request: %v", err)
+			continue
+		}
+		if _, err := c.Write(jsonBytes); err != nil {
+			logger.Debugf("Error writing request: %v", err)
 			continue
 		}
 	}

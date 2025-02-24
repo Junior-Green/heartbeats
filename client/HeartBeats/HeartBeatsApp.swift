@@ -39,6 +39,15 @@ enum HeartBeatsApp {
     _ = ProcessManager.shared
     sleep(2)
     _ = NetworkManager.shared
+    sleep(2)
+
+    Task {
+      do {
+        let _ = try await NetworkManager.shared.ping()
+      } catch {
+        Logger.shared.log("Ping failed")
+      }
+    }
   }
 
   private static func createDirectory(url: URL) {

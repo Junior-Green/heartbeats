@@ -4,27 +4,52 @@ import Network
 
 final class NetworkManager {
   private let logger: Logger = .shared
-  private let udsDelegate = UDSDelegate()
-  private let client: UDSClient
-    
-  static let shared = NetworkManager()
-    
-  private static let timeout: Int = 1500 // ms
-    
-  private init() {
-    self.client = UDSClient(socketPath: URL.socketFile.path(), delegate: udsDelegate)
-    client.start()
+  private let connectionManager: ConnectionManager
+  private var responseQueue: [UUID: CheckedContinuation<UDSResponse, any Error>] = [:]
+  
+  static let shared = NetworkManager(socketPath: URL.socketFile.path())
+  
+  private static let timeout: TimeInterval = 2
+  
+  private init(socketPath: String) {
+    let conn = NWConnection(to: .unix(path: socketPath), using: .tcp)
+    self.connectionManager = ConnectionManager(connection: conn)
+    connectionManager.onRecieve = onRecieve(_:)
   }
-    
-  private func sendRequest(_ request: UDSRequest) -> Future<UDSResponse, Error> {
-    return Future<UDSResponse, Error> { promise in
+  
+  private func sendRequest(_ request: UDSRequest, timeout: TimeInterval = NetworkManager.timeout) async throws -> UDSResponse {
+    let data = try request.toJSON()
+    let resp = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UDSResponse, Error>) in
       do {
-        let requestData = try JSONEncoder().encode(request)
-        self.udsDelegate.queueRequest(requestId: request.id, promise: promise)
-        self.client.sendData(requestData)
+        try connectionManager.send(data: data)
       } catch {
-        promise(.failure(error))
+        continuation.resume(throwing: error)
+        return
       }
+      self.responseQueue[request.id] = continuation
+      self.startTimeoutTimer(for: request.id, timeout: timeout)
+    }
+    
+    return resp
+  }
+
+  private func startTimeoutTimer(for requestID: UUID, timeout: TimeInterval) {
+    Task.detached {
+      _ = Timer(timeInterval: timeout, repeats: false) { [responseQueue = self.responseQueue] _ in
+        guard let continuation = responseQueue[requestID] else {
+          return
+        }
+        continuation.resume(throwing: NetworkError.timeout)
+      }
+    }
+  }
+  
+  private func onRecieve(_ response: UDSResponse) {
+    if let cont = self.responseQueue[response.id] {
+      cont.resume(returning: response)
+    } else {
+      logger.logError(NetworkError.unhandledResponse)
+      logger.log("Response id: \(response.id) not handled.")
     }
   }
     
@@ -47,7 +72,7 @@ final class NetworkManager {
     
   func ping() async throws -> Bool {
     let req = UDSRequest(action: .GET, resource: "/", payload: nil)
-    let resp = try await sendRequest(req).value
+    let resp = try await sendRequest(req)
     try handleResponseStatus(resp.status)
     return true
   }
@@ -56,7 +81,7 @@ final class NetworkManager {
     let data = try JSONEncoder().encode(host)
     
     let req = UDSRequest(action: .GET, resource: "/server/host", payload: Payload(data))
-    let resp = try await sendRequest(req).value
+    let resp = try await sendRequest(req)
     try handleResponseStatus(resp.status)
     guard let payload = resp.payload else { throw NetworkError.badRequest }
     return try JSONDecoder().decode(Server.self, from: payload)
@@ -66,7 +91,7 @@ final class NetworkManager {
     let data = try JSONEncoder().encode(ServerFavorite(host: host, favorite: favorite))
     
     let req = UDSRequest(action: .PUT, resource: "/server/favorite", payload: Payload(data))
-    let resp = try await sendRequest(req).value
+    let resp = try await sendRequest(req)
     try handleResponseStatus(resp.status)
     return true
   }
@@ -75,7 +100,7 @@ final class NetworkManager {
     let data = try JSONEncoder().encode(Server(host: host))
     
     let req = UDSRequest(action: .POST, resource: "/server", payload: Payload(data))
-    let resp = try await sendRequest(req).value
+    let resp = try await sendRequest(req)
     try handleResponseStatus(resp.status)
     return true
   }
